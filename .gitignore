@@ -1,0 +1,13 @@
+runtime/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.venv/
+config.yaml
+*.sqlite3
+*.sqlite3-*
+*.db
+*.log
+*.zip
