@@ -1,0 +1,179 @@
+version: 1
+account:
+  lobby_url: https://lobby.ogame.gameforge.com/
+  community: es
+  server_number: 277
+  expected_player_name: Test Commander
+browser:
+  headless: false
+  channel: chrome
+  profile_dir: runtime/browser-profile
+  locale: es-ES
+  navigation_timeout_seconds: 45
+  action_timeout_seconds: 10
+session:
+  manual_login_timeout_seconds: 600
+  health_check_seconds: 30
+  max_reconnect_attempts: 5
+  initial_backoff_seconds: 5
+  max_backoff_seconds: 120
+timing:
+  min_delay_seconds: 1.5
+  max_delay_seconds: 4.0
+logging:
+  file: runtime/logs/session.log
+  rotation_mb: 5
+  backup_count: 3
+scanner:
+  enabled: true
+  output_file: runtime/state.json
+  min_interval_seconds: 120
+  max_interval_seconds: 240
+  max_bodies_per_scan: 30
+  max_reading_age_seconds: 120
+automation:
+  dry_run: true
+  journal_file: runtime/orders.sqlite3
+  plan_file: runtime/plan.json
+  min_interval_seconds: 1800
+  max_interval_seconds: 3600
+builder:
+  enabled: true
+  strategy: priority
+  priorities:
+  - item: metal_mine
+    target_level: 30
+  - item: crystal_mine
+    target_level: 26
+  - item: deuterium_synthesizer
+    target_level: 24
+  reserve:
+    metal: 0
+    crystal: 0
+    deuterium: 100000
+  minimum_energy: 0
+  auto_solar: true
+  max_solar_level: 60
+  max_payback_days: 180
+  economy_speed: null
+  resource_weights:
+    metal: 1.0
+    crystal: 1.6666666667
+    deuterium: 2.5
+  production_multipliers:
+    metal: 1.0
+    crystal: 1.0
+    deuterium: 1.0
+  temperatures: {}
+research:
+  enabled: true
+  priorities:
+  - item: astrophysics
+    target_level: 9
+  - item: espionage_technology
+    target_level: 8
+  - item: plasma_technology
+    target_level: 10
+fleet:
+  enabled: true
+  plan_file: runtime/fleet_plan.json
+  min_interval_seconds: 900
+  max_interval_seconds: 1500
+  reserved_slots: 1
+  deuterium_reserve: 100000
+  maximum_fuel: 1000000
+  maximum_oneway_seconds: 7200
+  speed_percent: 100
+  capacities: {}
+  expeditions:
+    enabled: false
+    origins: []
+    top1_points: null
+    top1_source: public_api
+    top1_observed_at: null
+    top1_max_age_seconds: 3600
+    base_cap_override: null
+    economy_speed: null
+    player_class: discoverer
+    resource_bonus_percent: 0
+    holding_hours: 1
+    cargo_ship: large_cargo
+    pathfinder: true
+    probe: true
+    combat_ship: null
+    max_parallel: 1
+  transports:
+    enabled: false
+    sources: []
+    destination_id: null
+    cargo_ship: large_cargo
+    minimum_utilization_percent: 80
+    leave_resources:
+      metal: 0
+      crystal: 0
+      deuterium: 100000
+  recycling:
+    enabled: false
+    origins: []
+    radius_systems: 5
+    minimum_debris: 100000
+    max_systems_per_cycle: 10
+  selectors:
+    ship_input: input[name="am{id}"]
+    continue_2: '#continueToFleet2'
+    continue_3: '#continueToFleet3'
+    galaxy: '#galaxy'
+    system: '#system'
+    position: '#position'
+    target_type: select#type
+    speed: select#speed
+    mission: input[name="mission"][value="{mission}"]
+    holding: select#expeditiontime
+    resource_input: input[name="{resource}"]
+    fuel: '#consumption'
+    capacity: '#cargoCapacity'
+    flight_seconds: '#flightTime[data-seconds]'
+    send: '#sendFleet'
+defender:
+  enabled: true
+  report_file: runtime/defender_state.json
+  origins: []
+  destinations: []
+  mission: deployment
+  speed_percent: 10
+  trigger_seconds: 600
+  minimum_lead_seconds: 30
+  max_state_age_seconds: 20
+  minimum_flight_seconds: 1800
+  maximum_flight_seconds: 86400
+  maximum_fuel: 1000000
+  resource_policy: maximize_value
+  pause_on_unknown: true
+  idle_min_seconds: 120
+  idle_max_seconds: 240
+  alert_min_seconds: 10
+  alert_max_seconds: 20
+telegram:
+  enabled: false
+  token_env: TELEGRAM_BOT_TOKEN
+  chat_id_env: TELEGRAM_CHAT_ID
+  timeout_seconds: 3
+  cooldown_seconds: 300
+  state_file: runtime/alert_state.json
+scheduler:
+  status_file: runtime/scheduler_state.json
+  heartbeat_seconds: 10
+  idle_poll_seconds: 1
+  retry_initial_seconds: 5
+  retry_max_seconds: 120
+  max_consecutive_failures: 3
+  dependency_retry_seconds: 10
+  reconciliation_min_seconds: 15
+  reconciliation_max_seconds: 30
+  priorities:
+    defender: 0
+    session: 10
+    reconcile: 20
+    scanner: 30
+    brain: 40
+    fleet: 50
