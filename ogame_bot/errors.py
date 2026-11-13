@@ -5,6 +5,10 @@ class CoreError(Exception):
     """Error recuperable o comunicado al operador sin datos de sesión."""
 
 
+class JournalAccountMismatch(CoreError):
+    """El registro existente está vinculado a otra identidad configurada."""
+
+
 class ConfigurationError(CoreError):
     """Configuración inválida."""
 

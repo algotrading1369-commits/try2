@@ -532,6 +532,23 @@ asyncio quedó esperando en socket.accept dentro de _fallback_socketpair. Ese
 resultado no valida la interfaz ni una sesión prolongada del juego. Tampoco se
 pudo inspeccionar la ventana existente de Chrome: la autorización de control caducó.
 
+## Cambio de cuenta y registro de órdenes
+
+El registro se abre después de verificar la sesión y el nick del juego. Las nuevas
+instalaciones generan un archivo SQLite con sufijo por cuenta/servidor, a partir
+de automation.journal_file. Al volver a esa configuración se recupera el mismo
+registro, incluidas sus órdenes pendientes.
+
+Si una versión anterior creó orders.sqlite3 con el nick de ejemplo antes de
+iniciar sesión, el nuevo arranque lo conserva y utiliza un archivo independiente
+para la cuenta correcta. No hace falta borrar la carpeta runtime ni la sesión.
+Un registro heredado que coincida con la identidad configurada se sigue utilizando.
+
+Si el registro heredado pertenece a otra identidad y contiene órdenes inciertas,
+se detiene y pide revisar esas órdenes. No se cambia su propietario ni se borra
+su contenido para eludir el bloqueo. Una cuenta de prueba debe usar una ruta de
+perfil distinta de la cuenta principal y conservar dry_run durante la validación.
+
 ## Pruebas locales sin cuenta
 
 ```powershell

@@ -26,9 +26,10 @@ async def run(config: Config, *, scan_once: bool = False, session_only: bool = F
         journal: OrderJournal | None = None
         alerts: AlertDispatcher | None = None
         try:
-            if not any((session_only, scan_once, scanner_only)):
-                journal = OrderJournal(config.brain.journal_file, config.server_origin + "|" + config.expected_player_name)
+            # No vincular una base de órdenes a un nick de ejemplo antes del acceso real.
             await session.connect()
+            if not any((session_only, scan_once, scanner_only)):
+                journal = OrderJournal.open_for_account(config.brain.journal_file, config.server_origin + "|" + config.expected_player_name)
             full_mode = not any(flags)
             defender = None
             if journal is not None and (defender_once or defender_only or (full_mode and config.defender.enabled)):

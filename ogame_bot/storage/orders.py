@@ -2,21 +2,49 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import logging
 import sqlite3
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 from ..brain.planner import Upgrade
 from ..domain.models import utc_now
-from ..errors import CoreError
+from ..errors import CoreError, JournalAccountMismatch
 from ..fleet.models import Flight
 
 ACTIVE = ("prepared", "submitted", "uncertain")
+logger = logging.getLogger(__name__)
 
 
 class OrderJournal:
+    @classmethod
+    def open_for_account(cls, path: Path, account: str) -> OrderJournal:
+        """Reutiliza el registro heredado o un archivo estable de esta identidad.
+
+        No cambia la cuenta vinculada ni elimina órdenes. Un registro heredado
+        de otra identidad con órdenes inciertas requiere revisión explícita.
+        """
+        if path.exists():
+            try:
+                return cls(path, account)
+            except JournalAccountMismatch:
+                with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as previous:
+                    table = previous.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='orders'").fetchone()
+                    if table is None:
+                        raise CoreError("El registro anterior no tiene un formato verificable; se conserva sin modificar.") from None
+                    active = previous.execute("SELECT 1 FROM orders WHERE state IN ('prepared', 'submitted', 'uncertain') LIMIT 1").fetchone()
+                if active is not None:
+                    raise CoreError("El registro anterior pertenece a otra cuenta o servidor y contiene órdenes sin confirmar. Se conserva: revisa esas órdenes antes de continuar.") from None
+                logger.info("La configuración usa otra identidad; se conserva el registro anterior y se abre uno independiente.")
+        digest = hashlib.sha256(account.encode("utf-8")).hexdigest()[:20]
+        selected = path.with_name(path.stem + "-" + digest + (path.suffix or ".sqlite3"))
+        return cls(selected, account)
+
     def __init__(self, path: Path, account: str) -> None:
+        self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, timeout=5)
         self.connection.row_factory = sqlite3.Row
@@ -25,7 +53,7 @@ class OrderJournal:
             self.connection.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             row = self.connection.execute("SELECT value FROM metadata WHERE key='account'").fetchone()
             if row is not None and row[0] != account:
-                raise CoreError("El registro de órdenes pertenece a otra cuenta o servidor.")
+                raise JournalAccountMismatch("El registro de órdenes pertenece a otra cuenta o servidor.")
             self.connection.execute("INSERT OR IGNORE INTO metadata VALUES ('account', ?)", (account,))
             self.connection.execute("CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, state TEXT NOT NULL, action TEXT NOT NULL)")
             if "scope" not in {column[1] for column in self.connection.execute("PRAGMA table_info(orders)")}:
