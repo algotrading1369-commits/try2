@@ -21,11 +21,14 @@ class BrowserManager:
         self.context: BrowserContext | None = None
         self._playwright: Playwright | None = None
         self._lock: Any = None
+        self._control_token: str | None = None
 
     async def __aenter__(self) -> BrowserManager:
         self._lock = profile_lock(self.config.profile_dir)
         self._lock.__enter__()
         try:
+            from .panel_control import register_control
+            self._control_token = register_control(self.config.scheduler.status_file.parent)
             self._playwright = await asyncio.wait_for(async_playwright().start(), timeout=30)
             self.context = await self._playwright.chromium.launch_persistent_context(
                 user_data_dir=str(self.config.profile_dir),
@@ -57,8 +60,14 @@ class BrowserManager:
                     await asyncio.wait_for(self._playwright.stop(), timeout=10)
             finally:
                 if self._lock is not None:
-                    self._lock.__exit__(exc_type, exc, traceback)
-                    self._lock = None
+                    from .panel_control import unregister_control
+                    try:
+                        if self._control_token is not None:
+                            unregister_control(self.config.scheduler.status_file.parent, self._control_token)
+                            self._control_token = None
+                    finally:
+                        self._lock.__exit__(exc_type, exc, traceback)
+                        self._lock = None
 
     def require_context(self) -> BrowserContext:
         if self.context is None:

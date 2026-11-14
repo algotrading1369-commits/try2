@@ -40,6 +40,7 @@ class BrainSettings:
     probe_target: int = 0
     probe_body_id: int | None = None
     probe_bootstrap_live: bool = False
+    economic_live: bool = False
 
 
 def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
@@ -49,7 +50,7 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         "research": {"enabled", "priorities"},
     }
     for section, keys in expected.items():
-        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live"} if section == "automation" else set()
+        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live", "economic_live"} if section == "automation" else set()
         if not isinstance(raw.get(section), dict) or not keys <= set(raw[section]) or set(raw[section]) - keys - optional:
             raise ConfigurationError(f"Campos incorrectos en {section}.")
 
@@ -120,6 +121,9 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
     probe_target = raw["automation"].get("probe_target", 0)
     probe_body = raw["automation"].get("probe_body_id")
     probe_live = raw["automation"].get("probe_bootstrap_live", False)
+    economic_live = raw["automation"].get("economic_live", False)
+    if type(economic_live) is not bool:
+        raise ConfigurationError("economic_live debe ser un booleano.")
     if type(probe_target) is not int or probe_target not in {0, 1} or type(probe_live) is not bool:
         raise ConfigurationError("probe_target debe ser 0 o 1 y probe_bootstrap_live un booleano.")
     if probe_body is not None and (type(probe_body) is not int or probe_body <= 0):
@@ -136,5 +140,5 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         max_payback_days=number(raw["builder"]["max_payback_days"], "max_payback_days", 0.01),
         economy_speed=speed, resource_weights=mapping("resource_weights"),
         production_multipliers=mapping("production_multipliers"), temperatures=temperatures,
-        probe_target=probe_target, probe_body_id=probe_body, probe_bootstrap_live=probe_live,
+        probe_target=probe_target, probe_body_id=probe_body, probe_bootstrap_live=probe_live, economic_live=economic_live,
     )

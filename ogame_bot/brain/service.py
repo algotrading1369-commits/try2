@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from ..config import Config
-from ..core.action_executor import ActionExecutor
+from ..core.action_executor import ActionExecutor, uses_real_resources
 from ..domain.models import AccountSnapshot, utc_now
 from ..storage.orders import OrderJournal
 from ..storage.snapshots import save_snapshot
@@ -44,7 +44,7 @@ class Brain:
         actions = self.planner.plan(snapshot)
         selected = self.select(actions)
         report: dict[str, Any] = {
-            "schema_version": 1, "created_at": utc_now(), "dry_run": self.config.brain.dry_run and not self.config.brain.probe_bootstrap_live,
+            "schema_version": 1, "created_at": utc_now(), "dry_run": not uses_real_resources(selected, self.config.brain) if selected is not None else self.config.brain.dry_run,
             "cost_model": "classic_without_discounts", "roi_model": "estimated_full_production",
             "actions": [action.to_dict() for action in actions], "notes": self.planner.notes,
             "selected": selected.to_dict() if selected else None,

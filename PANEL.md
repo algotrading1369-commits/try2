@@ -1,30 +1,63 @@
-# Panel local
+# Panel local de pruebas
 
-Abre `Abrir_panel.bat`. La interfaz está en `http://127.0.0.1:8765` y el servicio
-debe seguir abierto mientras lo utilices. No se publica en Internet ni expone
-el perfil del navegador, cookies o contraseñas. No hay recursos de terceros.
+Abre `Abrir_panel.bat` y deja su consola abierta. La interfaz está en
+`http://127.0.0.1:8765`. Recarga la página tras actualizar el código.
+Los cambios de Python requieren reiniciar también el servicio del panel.
 
-La vista general muestra el estado del proceso, lecturas con su antigüedad,
-progreso de la sonda, órdenes recientes, módulos y diagnóstico. "Proceso
-activo" no significa por sí solo que la sesión del juego esté autenticada.
-Si se pide acceso manual, entra en el navegador del bot.
+## Pestañas
 
-Puedes iniciar el bot desde el panel y solicitar su parada cooperativa. Solo
-se detiene un proceso iniciado por ese mismo servicio; un bot abierto con
-BAT se detiene con Ctrl+C en su consola. No se mata otro proceso por su PID.
-Si cierras solo el servicio del panel, el bot conserva su propio proceso;
-detén primero el bot si quieres cerrar ambos.
+- Construcción: cola de objetivos reordenable o selección inteligente por ROI
+  estimado, reservas, energía solar y límites. En ROI solo se admiten minas y
+  se requieren velocidad económica y temperaturas para deuterio. En modo de
+  prioridades, un objetivo de nivel se completa antes del siguiente.
+- Investigación: cola de objetivos reordenable, una investigación a la vez.
+- Expediciones: orígenes, composición, permanencia, clase, top 1 y paralelismo.
+- Hangar: preparación limitada de una sonda con sus requisitos. Su historial
+  impide repetirla tras reiniciar. Todavía no hay una cola general de naves.
+- Defensa: vigilancia, ventanas de reacción, frecuencia y alertas Telegram.
+- FleetSave: evacuación reactiva ante ataque y transportes a cuerpos propios.
+  No implementa salida programada por hora ni cancelación automática. Un
+  transporte de recursos no garantiza que la flota quede a salvo.
+- Modo Scanner: intervalos, vigencia, cuerpos por lectura y reciclaje cercano.
+- General: límites de flotas, capacidades verificadas, sesión y navegador.
+- Registros: mensajes y filtros; cada módulo muestra también su último informe.
 
-La configuración se edita con el bot detenido. Se valida antes de guardar,
-con control de versión y copia de respaldo en `runtime/config-panel-*.yaml`.
-Se pueden ajustar prioridades, reservas, intervalos, preparación de sonda y
-ventana/misión de defensa. Los cambios se aplican al próximo arranque. El
-panel mantiene los envíos de flota en simulación mientras su validación real
-siga pendiente. El modo real limitado de sonda se identifica por separado.
+Los controles guardan la configuración real, validan el documento completo y
+conservan una copia anterior en `runtime/config-panel-*.yaml`. El bot debe estar
+detenido. Los cambios se aplican al próximo arranque. Los IDs de planeta se ven
+en los informes del scanner; las listas de IDs se separan con comas.
 
-El historial de fabricación no se borra desde el panel. La preparación de
-una sonda termina tras su confirmación y no se repite al reiniciar.
+La cuenta, rutas del perfil y credenciales no se editan aquí. Telegram usa las
+variables de entorno ya configuradas en el bot.
 
-El panel acepta conexiones solo en loopback y comprueba Host, Origin y un
-token de sesión para las operaciones que modifican datos. No habilites
-reenvíos de puerto ni cambies la dirección de escucha para exponerlo.
+## Modos y recursos reales
+
+El selector permite todos los módulos habilitados, solo scanner, solo sesión
+o solo defensor. Solo scanner lee sin ejecutar mejoras ni defensa.
+
+`automation.dry_run` permanece activo para las flotas desde este panel. La opción
+`automation.economic_live` activa explícitamente edificios e investigación
+con recursos reales según sus objetivos, manteniendo las flotas en simulación.
+Está desactivada por defecto y no habilita fabricación general de naves.
+
+La preparación de sonda tiene su propia opción real limitada. Mientras esté
+seleccionada, pausa las prioridades normales incluso después de completarse;
+desactívala en Hangar para probar el constructor habitual. Ambos modos reales
+respetan comprobaciones de identidad, recursos, amenazas, colas y registro.
+
+## Parada
+
+El bot actualizado registra su control tras adquirir el bloqueo del perfil.
+La parada funciona también para un bot abierto mediante BAT o después de
+reiniciar el panel. Se comprueba PID y fecha de creación del proceso, y se envía
+una solicitud con token. El bot termina en un punto de control al finalizar la
+operación actual; no se mata ningún proceso del sistema.
+
+Una instancia antigua ya en ejecución necesita detenerse una vez con Ctrl+C
+y volver a abrirse con el código actualizado. El panel lo indicará si la detecta.
+Cerrar el servicio del panel deja el bot activo; usa Detener bot primero si
+quieres cerrar ambos. Las lecturas antiguas quedan identificadas como tales.
+
+El panel escucha solo en loopback, comprueba Host/Origin y exige token para
+cambios. No habilites reenvíos de puerto. Los envíos reales, evacuación completa
+y funcionamiento prolongado en el juego continúan pendientes de validación.

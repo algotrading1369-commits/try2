@@ -59,6 +59,8 @@ def main() -> int:
             print(format_report(diagnose(config, load_state(config.scanner_output_file))))
             return 0
         setup_logging(config)
+        if config.brain.economic_live:
+            logging.getLogger("ogame_bot").warning("Construcción e investigación REALES según objetivos configurados. Las flotas conservan su modo independiente de simulación.")
         if config.brain.probe_bootstrap_live:
             logging.getLogger("ogame_bot").warning("Preparación REAL limitada: requisitos de la sonda y una unidad en el planeta configurado. La simulación de flotas sigue en %s.", config.brain.dry_run)
         from .app import run

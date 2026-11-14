@@ -22,6 +22,20 @@ from .brain.catalog import BUILD, RESEARCH
 from .readiness import diagnose, load_state
 from .scheduler.loop import read_status
 from .storage.snapshots import save_snapshot
+from .core.panel_control import registered_control, stop_requested as control_stop_requested
+
+EDITABLE = {
+    "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds"},
+    "builder": {"enabled", "strategy", "priorities", "reserve", "minimum_energy", "auto_solar", "max_solar_level", "max_payback_days", "economy_speed", "resource_weights", "production_multipliers", "temperatures"},
+    "research": {"enabled", "priorities"},
+    "fleet": {"enabled", "min_interval_seconds", "max_interval_seconds", "reserved_slots", "deuterium_reserve", "maximum_fuel", "maximum_oneway_seconds", "speed_percent", "capacities", "expeditions", "transports", "recycling"},
+    "defender": {"enabled", "origins", "destinations", "mission", "speed_percent", "trigger_seconds", "minimum_lead_seconds", "max_state_age_seconds", "minimum_flight_seconds", "maximum_flight_seconds", "maximum_fuel", "resource_policy", "pause_on_unknown", "idle_min_seconds", "idle_max_seconds", "alert_min_seconds", "alert_max_seconds"},
+    "scanner": {"enabled", "min_interval_seconds", "max_interval_seconds", "max_bodies_per_scan", "max_reading_age_seconds"},
+    "session": {"manual_login_timeout_seconds", "health_check_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds"},
+    "timing": {"min_delay_seconds", "max_delay_seconds"},
+    "browser": {"headless", "channel", "locale", "navigation_timeout_seconds", "action_timeout_seconds"},
+    "telegram": {"enabled", "timeout_seconds", "cooldown_seconds"},
+}
 
 
 class PanelError(Exception):
@@ -44,20 +58,27 @@ class PanelService:
     def settings(self) -> dict[str, Any]:
         raw_bytes = self.path.read_bytes()
         raw = yaml.safe_load(raw_bytes)
+        raw["automation"].setdefault("probe_target", 0)
+        raw["automation"].setdefault("probe_body_id", None)
+        raw["automation"].setdefault("probe_bootstrap_live", False)
+        raw["automation"].setdefault("economic_live", False)
         return {"version": hashlib.sha256(raw_bytes).hexdigest(),
-                "automation": {key: raw["automation"].get(key, default) for key, default in
-                               (("dry_run", True), ("probe_target", 0), ("probe_body_id", None), ("probe_bootstrap_live", False), ("min_interval_seconds", 60), ("max_interval_seconds", 90))},
-                "builder": {key: raw["builder"][key] for key in ("enabled", "priorities", "reserve", "auto_solar")},
-                "research": {key: raw["research"][key] for key in ("enabled", "priorities")},
-                "defender": {key: raw["defender"][key] for key in ("enabled", "mission", "trigger_seconds")}}
+                **{section: {key: raw[section][key] for key in sorted(keys)} for section, keys in EDITABLE.items()}}
 
     def process_status(self) -> dict[str, Any]:
         code = self.process.poll() if self.process is not None else None
         owned = self.process is not None and code is None
         status = self.scheduler_status()
+        control = registered_control(self.config.scheduler.status_file.with_name("bot_control.json"))
+        controllable = owned or control is not None
+        target_pid = self.process.pid if owned else control["pid"] if control else None
+        target_token = self.control_token if owned else control["token"] if control else None
+        requested = (control_stop_requested(self.config.scheduler.status_file.with_name("panel_stop.json"), target_token, target_pid)
+                     if controllable and target_token else False)
         return {"owned_running": owned, "pid": self.process.pid if owned else None,
-                "exit_code": code, "stop_requested": self.stop_requested if owned else False,
-                "external_running": not owned and status.get("state") == "running" and status.get("heartbeat_is_recent", False)}
+                "exit_code": code, "stop_requested": requested,
+                "can_stop": controllable, "registered_running": control is not None,
+                "external_running": not owned and (control is not None or (status.get("state") == "running" and status.get("heartbeat_is_recent", False)))}
 
     def scheduler_status(self) -> dict[str, Any]:
         from .errors import CoreError
@@ -110,6 +131,7 @@ class PanelService:
                                 "research": [{"item": key, "name": value.name_es} for key, value in RESEARCH.items()]},
                     "scheduler": self.scheduler_status(), "snapshot": snapshot,
                     "defender": load_state(self.config.defender.report_file), "plan": load_state(self.config.brain.plan_file),
+                    "fleet_plan": load_state(self.config.fleet.plan_file),
                     "diagnostics": diagnose(self.config, snapshot), "orders": self.orders(), "logs": logs}
 
     def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -117,17 +139,27 @@ class PanelService:
             process = self.process_status()
             if process["owned_running"] or process["external_running"]:
                 raise PanelError("Detén el bot antes de guardar cambios. Se aplicarán en el próximo arranque.", 409)
-            expected = {"version", "automation", "builder", "research", "defender"}
+            expected = {"version", *EDITABLE}
             if set(payload) != expected or payload["version"] != self.settings()["version"]:
                 raise PanelError("La configuración cambió. Recarga el panel antes de guardar.", 409)
             raw = yaml.safe_load(self.path.read_bytes())
-            allowed = {"automation": {"dry_run", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds"},
-                       "builder": {"enabled", "priorities", "reserve", "auto_solar"},
-                       "research": {"enabled", "priorities"}, "defender": {"enabled", "mission", "trigger_seconds"}}
-            for section, keys in allowed.items():
+            for section, keys in EDITABLE.items():
                 if not isinstance(payload[section], dict) or set(payload[section]) != keys:
                     raise PanelError("Campos de configuración no admitidos.")
                 raw[section].update(payload[section])
+            temperatures = raw["builder"]["temperatures"]
+            if not isinstance(temperatures, dict):
+                raise PanelError("Las temperaturas deben ser un objeto de IDs de planeta y valores numéricos.")
+            converted: dict[int, Any] = {}
+            for key, value in temperatures.items():
+                if type(key) is int and key > 0:
+                    identifier = key
+                elif isinstance(key, str) and key.isascii() and key.isdecimal() and str(int(key)) == key and int(key) > 0:
+                    identifier = int(key)
+                else:
+                    raise PanelError("Cada temperatura requiere un ID de planeta entero positivo.")
+                converted[identifier] = value
+            raw["builder"]["temperatures"] = converted
             if raw["automation"]["dry_run"] is not True:
                 raise PanelError("El envío real de flotas sigue pendiente de validación; conserva la simulación.")
             temporary: Path | None = None
@@ -150,8 +182,11 @@ class PanelService:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
 
-    def start(self) -> dict[str, str]:
+    def start(self, mode: str = "full") -> dict[str, str]:
         with self.lock:
+            flags = {"full": [], "scanner": ["--scanner-only"], "session": ["--session-only"], "defender": ["--defender-only"]}
+            if mode not in flags:
+                raise PanelError("Modo de ejecución desconocido.")
             status = self.process_status()
             if status["owned_running"] or status["external_running"]:
                 raise PanelError("El bot ya está activo. No se iniciará una segunda instancia.", 409)
@@ -162,17 +197,22 @@ class PanelService:
             path = self.config.scheduler.status_file.parent / "panel_bot_console.log"
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("ab") as output:
-                self.process = subprocess.Popen([sys.executable, "-m", "ogame_bot", "--config", str(self.path)],
+                self.process = subprocess.Popen([sys.executable, "-m", "ogame_bot", *flags[mode], "--config", str(self.path)],
                                                 cwd=Path(__file__).resolve().parents[1], env=env, stdin=subprocess.DEVNULL,
                                                 stdout=output, stderr=subprocess.STDOUT,
                                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-            return {"message": "Bot iniciado. Entra en Veritate en el navegador que abra el bot."}
+            return {"message": "Bot iniciado. Entra en el universo configurado desde el navegador del bot."}
 
     def stop(self) -> dict[str, str]:
         with self.lock:
-            if self.process is None or self.process.poll() is not None or self.control_token is None:
-                raise PanelError("Este panel no controla un proceso activo. Si lo abriste con BAT, usa Ctrl+C en su consola.", 409)
+            control = registered_control(self.config.scheduler.status_file.with_name("bot_control.json"))
+            if self.process is not None and self.process.poll() is None and self.control_token:
+                pid, token = self.process.pid, self.control_token
+            elif control is not None:
+                pid, token = control["pid"], control["token"]
+            else:
+                raise PanelError("No hay un bot con control de parada registrado. Si sigue abierta una versión anterior, detenla una vez con Ctrl+C y arráncala de nuevo.", 409)
             save_snapshot(self.config.scheduler.status_file.with_name("panel_stop.json"),
-                          {"pid": self.process.pid, "token": self.control_token, "action": "stop"})
+                          {"pid": pid, "token": token, "action": "stop"})
             self.stop_requested = True
             return {"message": "Parada solicitada. Esperando a que finalice la acción actual."}

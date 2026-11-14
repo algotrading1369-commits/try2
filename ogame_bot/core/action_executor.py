@@ -5,6 +5,7 @@ from typing import Any
 import logging
 
 from ..brain.catalog import MINES, energy_delta
+from ..brain.settings import BrainSettings
 from ..brain.planner import Upgrade, afford, probe_bootstrap_action
 from ..config import Config
 from ..errors import IdentityMismatch, ReadError, ConnectionLost
@@ -14,6 +15,12 @@ from ..storage.orders import OrderJournal
 from .session import SessionManager
 
 logger = logging.getLogger(__name__)
+
+
+def uses_real_resources(upgrade: Upgrade, settings: BrainSettings) -> bool:
+    return (not settings.dry_run
+            or (settings.probe_bootstrap_live and probe_bootstrap_action(upgrade, settings))
+            or (settings.economic_live and not settings.probe_target and upgrade.kind in {"building", "research"}))
 
 
 def verify_identity(document: Document, upgrade: Upgrade, config: Config) -> None:
@@ -104,7 +111,7 @@ class ActionExecutor:
             return {"state": "blocked", "reason": "module_disabled_or_outside_configured_goals"}
         if self.session.defense_paused is True:
             return {"state": "blocked", "reason": "defender_paused_routine_actions"}
-        if self.config.brain.dry_run and not (settings.probe_bootstrap_live and bootstrap):
+        if not uses_real_resources(upgrade, settings):
             return {"state": "simulated", "action": upgrade.to_dict()}
         async with self.session.read_page(upgrade.technology.component, upgrade.body_id) as page:
             await page.locator(".technology[data-technology]").first.wait_for(state="attached")

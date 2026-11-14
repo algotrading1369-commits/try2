@@ -4,12 +4,16 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from ogame_bot.config import load_config
 from ogame_bot.errors import ConfigurationError
-from ogame_bot.core.panel_control import stop_requested
+from ogame_bot.core.panel_control import stop_requested, registered_control, register_control, unregister_control
+from ogame_bot.core.action_executor import uses_real_resources
+from ogame_bot.brain.planner import Upgrade
+from ogame_bot.brain.catalog import BUILD, RESEARCH, SHIP_BUILD
 from ogame_bot.panel import allowed_request
 from ogame_bot.panel_service import PanelError, PanelService
 
@@ -109,3 +113,78 @@ class PanelServiceTests(unittest.TestCase):
         path = self.root / "stop.json"
         path.write_text(json.dumps({"pid": 55, "token": "t", "action": "launch"}), encoding="utf-8")
         self.assertFalse(stop_requested(path, "t", 55))
+
+    def test_all_module_settings_roundtrip_and_paths_remain_private(self) -> None:
+        payload = self.service.settings()
+        payload["scanner"]["min_interval_seconds"] = 40
+        payload["scanner"]["max_interval_seconds"] = 80
+        payload["fleet"]["expeditions"]["max_parallel"] = 3
+        payload["defender"]["speed_percent"] = 10
+        payload["builder"]["priorities"] = [{"item": "metal_mine", "target_level": 12}, {"item": "crystal_mine", "target_level": 10}]
+        payload["automation"]["economic_live"] = True
+        payload["builder"]["temperatures"] = {"1": 40}
+        self.service.save_settings(payload)
+        config = load_config(self.path)
+        self.assertEqual(config.scanner_min_interval_seconds, 40)
+        self.assertEqual(config.fleet.expeditions["max_parallel"], 3)
+        self.assertEqual(config.brain.build_goals[0].item, "metal_mine")
+        self.assertTrue(config.brain.economic_live)
+        self.assertTrue(config.brain.dry_run)
+        self.assertEqual(config.brain.temperatures, {1: 40})
+        self.assertNotIn("profile_dir", payload["browser"])
+        self.assertNotIn("token_env", payload["telegram"])
+
+    def test_invalid_nested_module_settings_preserve_configuration(self) -> None:
+        for section, key, value in (("fleet", "speed_percent", 13), ("scanner", "min_interval_seconds", -1), ("builder", "strategy", "unknown")):
+            before = self.path.read_bytes()
+            payload = self.service.settings()
+            payload[section][key] = value
+            with self.assertRaises(ConfigurationError):
+                self.service.save_settings(payload)
+            self.assertEqual(before, self.path.read_bytes())
+
+    def test_registration_survives_panel_restart_and_accepts_cooperative_stop(self) -> None:
+        directory = self.service.config.scheduler.status_file.parent
+        with patch.dict("os.environ", {}, clear=True):
+            token = register_control(directory)
+            try:
+                another_panel = PanelService(self.path)
+                status = another_panel.process_status()
+                self.assertTrue(status["can_stop"])
+                self.assertTrue(status["external_running"])
+                self.assertNotIn("token", json.dumps(status))
+                another_panel.stop()
+                import os
+                self.assertTrue(stop_requested(directory / "panel_stop.json", token, os.getpid()))
+                self.assertTrue(another_panel.process_status()["stop_requested"])
+                with patch.dict("os.environ", {}, clear=True):
+                    replacement = register_control(directory)
+                    self.assertFalse(another_panel.process_status()["stop_requested"])
+                    unregister_control(directory, replacement)
+            finally:
+                unregister_control(directory, token)
+        self.assertFalse((directory / "bot_control.json").exists())
+
+    def test_stale_registration_does_not_stop_a_reused_pid(self) -> None:
+        path = self.service.config.scheduler.status_file.with_name("bot_control.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"pid": 55, "birth": "old", "token": "x" * 32}), encoding="utf-8")
+        with patch("ogame_bot.core.panel_control.process_identity", return_value="new"):
+            self.assertIsNone(registered_control(path))
+            with self.assertRaises(PanelError):
+                self.service.stop()
+
+    def test_scanner_mode_is_explicit_and_unknown_modes_are_rejected(self) -> None:
+        with patch("ogame_bot.panel_service.subprocess.Popen") as launch:
+            self.service.start("scanner")
+            self.assertIn("--scanner-only", launch.call_args.args[0])
+        with self.assertRaises(PanelError):
+            self.service.start("untrusted --argument")
+
+    def test_economic_live_scope_excludes_shipyard_and_probe_mode(self) -> None:
+        settings = replace(self.service.config.brain, dry_run=True, economic_live=True, probe_target=0, probe_bootstrap_live=False)
+        for kind, item, catalog in (("building", "metal_mine", BUILD), ("research", "energy_technology", RESEARCH), ("shipyard", "espionage_probe", SHIP_BUILD)):
+            action = Upgrade(kind, item, 1, "1:1:1", 0, 1, catalog[item].cost(1), "test")
+            self.assertEqual(uses_real_resources(action, settings), kind != "shipyard")
+            self.assertFalse(uses_real_resources(action, replace(settings, economic_live=False)))
+            self.assertFalse(uses_real_resources(action, replace(settings, probe_target=1, probe_body_id=1)))

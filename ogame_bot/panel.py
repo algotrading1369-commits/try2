@@ -53,7 +53,7 @@ def handler_for(service: PanelService) -> type[BaseHTTPRequestHandler]:
                 if self.path == "/api/state":
                     self.json_response(200, service.state())
                     return
-                files = {"/": ("index.html", "text/html"), "/panel.css": ("panel.css", "text/css"), "/panel.js": ("panel.js", "text/javascript")}
+                files = {"/": ("index.html", "text/html"), "/panel.css": ("panel.css", "text/css"), "/panel.js": ("panel.js", "text/javascript"), "/panel_forms.js": ("panel_forms.js", "text/javascript")}
                 if self.path not in files:
                     self.json_response(404, {"error": "Ruta desconocida."})
                     return
@@ -76,8 +76,10 @@ def handler_for(service: PanelService) -> type[BaseHTTPRequestHandler]:
                     raise PanelError("Formato de petición inválido.")
                 if self.path == "/api/settings":
                     result = service.save_settings(payload)
-                elif self.path == "/api/start" and not payload:
-                    result = service.start()
+                elif self.path == "/api/start" and set(payload) <= {"mode"}:
+                    if not isinstance(payload.get("mode", "full"), str):
+                        raise PanelError("Modo de ejecución inválido.")
+                    result = service.start(payload.get("mode", "full"))
                 elif self.path == "/api/stop" and not payload:
                     result = service.stop()
                 else:
