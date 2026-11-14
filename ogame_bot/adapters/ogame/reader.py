@@ -10,20 +10,26 @@ from ...scanner.parsing import current_body_id
 
 
 async def expand_event_panel(page: Page) -> None:
-    # El resumen no abre necesariamente el listado: el control real es el enlace.
-    opener = page.locator("#js_eventDetailsClosed")
-    if await opener.count() == 0:
-        opener = page.locator("#eventboxFilled")
-    content = page.locator("#eventContent")
-    if await opener.count() == 1 and await opener.is_visible() and (
-        await content.count() == 0 or not await content.is_visible()
-    ):
-        try:
+    try:
+        # La identidad aparece antes de que termine la carga AJAX del resumen.
+        await page.locator("#eventboxFilled:visible, #eventboxBlank:visible").first.wait_for(state="visible")
+        summary = page.locator("#eventboxFilled")
+        if await summary.count() != 1 or not await summary.is_visible():
+            return
+        # Pulsar el resumen no garantiza que se despliegue el listado.
+        opener = page.locator("#js_eventDetailsClosed")
+        if await opener.count() == 0:
+            opener = summary
+        content = page.locator("#eventContent")
+        if await opener.count() == 1 and await opener.is_visible() and (
+            await content.count() == 0 or not await content.is_visible()
+        ):
             await opener.click()
-            await content.wait_for(state="visible")
-        except Error:
-            # La ausencia de eventos verificados no se interpreta como ausencia de ataques.
-            pass
+        # La tabla puede ser visible antes de que la respuesta AJAX inserte filas.
+        await page.locator("#eventContent .eventFleet").first.wait_for(state="attached")
+    except Error:
+        # Un timeout conserva el indicador global; nunca lo convierte en "sin ataque".
+        return
 
 
 class OGameReader:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import AsyncMock, MagicMock
+from playwright.async_api import TimeoutError as PlaywrightTimeout
 
 from ogame_bot.adapters.ogame.reader import expand_event_panel
 from ogame_bot.defender.threats import resolve_target
@@ -44,18 +45,57 @@ class AttackParsingTests(unittest.TestCase):
 
 
 class PanelOpeningTests(unittest.IsolatedAsyncioTestCase):
-    async def test_clicks_details_control_instead_of_summary(self) -> None:
-        button = MagicMock(count=AsyncMock(return_value=1), is_visible=AsyncMock(return_value=True), click=AsyncMock())
-        content = MagicMock(count=AsyncMock(return_value=1), is_visible=AsyncMock(return_value=False), wait_for=AsyncMock())
+    def panel(self, *, filled: bool = True, opened: bool = False) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock, MagicMock]:
+        summary = MagicMock(count=AsyncMock(return_value=1), is_visible=AsyncMock(return_value=filled), click=AsyncMock())
+        button = MagicMock(count=AsyncMock(return_value=1), is_visible=AsyncMock(return_value=not opened), click=AsyncMock())
+        content = MagicMock(count=AsyncMock(return_value=1), is_visible=AsyncMock(return_value=opened))
+        readiness = MagicMock()
+        readiness.first.wait_for = AsyncMock()
+        rows = MagicMock()
+        rows.first.wait_for = AsyncMock()
         page = MagicMock()
-        page.locator.side_effect = {"#js_eventDetailsClosed": button, "#eventContent": content}.__getitem__
+        page.locator.side_effect = {
+            "#eventboxFilled:visible, #eventboxBlank:visible": readiness,
+            "#eventboxFilled": summary,
+            "#js_eventDetailsClosed": button,
+            "#eventContent": content,
+            "#eventContent .eventFleet": rows,
+        }.__getitem__
+        return page, summary, button, readiness, rows
+
+    async def test_clicks_details_control_instead_of_summary(self) -> None:
+        page, summary, button, readiness, rows = self.panel()
         await expand_event_panel(page)
         button.click.assert_awaited_once()
-        content.wait_for.assert_awaited_once_with(state="visible")
+        summary.click.assert_not_awaited()
+        readiness.first.wait_for.assert_awaited_once_with(state="visible")
+        rows.first.wait_for.assert_awaited_once_with(state="attached")
 
     async def test_already_open_panel_is_not_toggled_closed(self) -> None:
-        button = MagicMock(count=AsyncMock(return_value=1), is_visible=AsyncMock(return_value=False), click=AsyncMock())
-        page = MagicMock()
-        page.locator.return_value = button
+        page, _, button, _, rows = self.panel(opened=True)
         await expand_event_panel(page)
         button.click.assert_not_awaited()
+        rows.first.wait_for.assert_awaited_once()
+
+    async def test_waits_for_ajax_summary_before_deciding_it_is_empty(self) -> None:
+        page, summary, button, readiness, _ = self.panel(filled=False)
+        async def ajax_ready(**kwargs: object) -> None:
+            summary.is_visible.return_value = True
+        readiness.first.wait_for.side_effect = ajax_ready
+        await expand_event_panel(page)
+        button.click.assert_awaited_once()
+
+    async def test_empty_summary_does_not_wait_for_nonexistent_flights(self) -> None:
+        page, _, button, _, rows = self.panel(filled=False)
+        await expand_event_panel(page)
+        button.click.assert_not_awaited()
+        rows.first.wait_for.assert_not_awaited()
+
+    async def test_timeout_preserves_global_attack_marker(self) -> None:
+        page, _, _, _, rows = self.panel()
+        rows.first.wait_for.side_effect = PlaywrightTimeout("synthetic timeout")
+        await expand_event_panel(page)
+        reading = movements(Document('<div id="attack_alert" class="soon"></div>'))
+        self.assertEqual(reading.data["threat_status"], "detected")
+        self.assertIn("event_list_not_confirmed", reading.issues)
+
