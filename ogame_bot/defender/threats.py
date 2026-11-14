@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..domain.models import CelestialBody, Reading
@@ -95,7 +95,23 @@ def escape_guard(document: Document, flight: Flight, settings: DefenderSettings)
             return "departure_window_closed"
         # No se elige un destino que figure bajo otra amenaza conocida.
         for other in (movement.data or {}).get("events", []):
-            if other.get("possible_incoming_attack") and (other.get("destination_id") == flight.destination_id or (other.get("destination") == flight.destination and other.get("destination_type") in {None, flight.destination_type})):
+            if other.get("possible_incoming_attack") and ((flight.destination_id is not None and other.get("destination_id") == flight.destination_id) or (other.get("destination") == flight.destination and other.get("destination_type") in {None, flight.destination_type})):
                 return "escape_destination_under_attack"
         return None
     return "threat_no_longer_verified"
+
+
+def escape_return_guard(flight: Flight, oneway_seconds: int, settings: DefenderSettings, now: datetime | None = None) -> str | None:
+    """Comprueba el regreso del espionaje sin permanencia ni cancelación."""
+    if type(oneway_seconds) is not int or oneway_seconds <= 0:
+        return "return_time_unverified"
+    now = now or datetime.now(timezone.utc)
+    try:
+        impact = datetime.fromisoformat(flight.impact_at or "")
+        if impact.tzinfo is None:
+            return "impact_time_unverified"
+        if now + timedelta(seconds=2 * oneway_seconds) <= impact + timedelta(seconds=settings.minimum_lead_seconds):
+            return "return_before_attack_margin"
+    except (TypeError, ValueError, OverflowError):
+        return "return_time_unverified"
+    return None

@@ -335,6 +335,16 @@ class DefenderServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["destination_checks"][0]["destination_ids"], [102])
         self.defender.executor.execute.assert_not_awaited()
 
+    async def test_spy16_simulation_uses_deep_space_without_own_destination(self):
+        cfg = replace(self.config, defender=replace(self.config.defender, mission=6, destinations=()))
+        self.defender.config = cfg
+        self.defender.planner = EscapePlanner(cfg.defender, cfg.fleet.capacities, cfg.brain.resource_weights)
+        report = await self.defender.process()
+        self.assertEqual(report["result"]["state"], "simulated")
+        self.assertEqual(report["action"]["mission"], 6)
+        self.assertEqual(report["action"]["destination"], "1:200:16")
+        self.assertIsNone(report["action"]["destination_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

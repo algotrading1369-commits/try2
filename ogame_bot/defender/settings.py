@@ -70,11 +70,13 @@ def load_defender_settings(raw: Any, telegram: Any, base: Path) -> tuple[Defende
             raise ConfigurationError("Ruta vacía en defensa/Telegram.")
         return (base / value).resolve()
 
-    if raw["mission"] not in {"deployment", "transport"} or raw["resource_policy"] not in {"maximize_value", "require_all"}:
+    if raw["mission"] not in {"deployment", "transport", "espionage16"} or raw["resource_policy"] not in {"maximize_value", "require_all"}:
         raise ConfigurationError("Misión o política de recursos defensiva inválida.")
     speed = number(raw["speed_percent"], integer=True)
     if speed not in range(10, 101, 10):
         raise ConfigurationError("La velocidad defensiva debe ser 10–100 en incrementos de 10.")
+    if raw["mission"] == "espionage16" and speed != 10:
+        raise ConfigurationError("La evacuación espionage16 requiere velocidad 10%.")
     for lower, upper in (("idle_min_seconds", "idle_max_seconds"), ("alert_min_seconds", "alert_max_seconds"), ("minimum_flight_seconds", "maximum_flight_seconds")):
         if number(raw[lower]) > number(raw[upper]):
             raise ConfigurationError("Intervalos defensivos invertidos.")
@@ -87,7 +89,7 @@ def load_defender_settings(raw: Any, telegram: Any, base: Path) -> tuple[Defende
             raise ConfigurationError("Telegram requiere nombres de variables de entorno, no credenciales.")
     return DefenderSettings(
         boolean(raw["enabled"]), path(raw["report_file"]), ids("origins"), ids("destinations"),
-        4 if raw["mission"] == "deployment" else 3, speed,
+        {"deployment": 4, "transport": 3, "espionage16": 6}[raw["mission"]], speed,
         number(raw["trigger_seconds"]), number(raw["minimum_lead_seconds"]), number(raw["max_state_age_seconds"]),
         number(raw["minimum_flight_seconds"], integer=True), number(raw["maximum_flight_seconds"], integer=True), number(raw["maximum_fuel"], integer=True),
         raw["resource_policy"], boolean(raw["pause_on_unknown"]),

@@ -24,6 +24,25 @@ de evacuación. Los motivos principales son:
 No se sustituyen destinos ausentes por coordenadas de otros jugadores. No se
 selecciona automáticamente una misión de ataque, colonización o reciclaje.
 
+## Espionaje a posición 16
+
+La opción explícita `defender.mission: espionage16` utiliza misión 6 a posición
+16 del mismo sistema que el origen, al 10% de velocidad. No requiere otro
+planeta ni slots de expedición. Requiere una sonda y al menos una carguera,
+además del inventario completo de naves móviles que se evacuarán. Permite
+cargar recursos según la capacidad verificada. No espera una expedición y
+no programa una cancelación: el recorrido es de ida y vuelta.
+
+En este modo `minimum_flight_seconds` es la duración mínima de ida y vuelta;
+en despliegue y transporte sigue siendo el mínimo del tramo de ida. El
+ejecutor comprueba la duración real mostrada por el formulario y exige que
+el regreso quede después del impacto con el margen `minimum_lead_seconds`.
+Las simulaciones se etiquetan `timing_verified: false`: no verifican el
+presupuesto de vuelo del servidor ni prueban el envío real.
+
+La posibilidad del envío con sonda, cargueras y recursos a posición 16 figura
+en la directiva reproducida en el [foro oficial](https://forum.es.ogame.gameforge.com/forum/thread/32509-no-consigo-completar-la-misi%C3%B3n-directiva-iii-despeja-una-flota-con-recursos/).
+
 El scanner guarda `fleet_slots` desde la primera página de flota leída. En la
 interfaz española se leen las etiquetas `Flotas` y `Expediciones` dentro de
 `#slots`, ignorando el segundo panel homónimo de retirada táctica. Lecturas

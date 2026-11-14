@@ -44,7 +44,7 @@ class Flight:
         return asdict(self)
 
     def validate(self) -> None:
-        if self.kind != "fleet" or type(self.mission) is not int or self.mission not in {3, 4, 8, 15}:
+        if self.kind != "fleet" or type(self.mission) is not int or self.mission not in {3, 4, 6, 8, 15}:
             raise ValueError("Misión no admitida por el módulo 4.")
         if type(self.origin_id) is not int or self.origin_id <= 0:
             raise ValueError("Origen inválido.")
@@ -56,6 +56,14 @@ class Flight:
             raise ValueError("Tipo de destino inválido.")
         if self.mission == 15 and (position != 16 or self.destination_type != 1):
             raise ValueError("Las expediciones requieren posición 16.")
+        if self.mission == 6 and (
+            position != 16 or self.destination_type != 1 or self.destination_id is not None
+            or coordinates(self.destination)[:2] != coordinates(self.origin_coordinates)[:2]
+            or self.purpose != "defender" or self.speed_percent != 10
+            or self.ships.get("espionage_probe", 0) < 1
+            or not any(self.ships.get(ship, 0) > 0 for ship in ("small_cargo", "large_cargo"))
+        ):
+            raise ValueError("La evacuación de espionaje requiere carguera, sonda y posición 16 del mismo sistema al 10%.")
         if self.mission == 8 and (self.destination_type != 2 or self.ships.keys() != {"recycler"}):
             raise ValueError("Reciclaje requiere recicladores y destino escombros.")
         if self.mission in {3, 4} and (self.destination_id is None or self.destination_type not in {1, 3} or self.destination_id == self.origin_id):
@@ -64,7 +72,7 @@ class Flight:
             raise ValueError("Composición inválida.")
         if set(self.resources) != {"metal", "crystal", "deuterium"} or any(type(value) is not int or value < 0 for value in self.resources.values()):
             raise ValueError("Carga inválida.")
-        if self.mission not in {3, 4} and any(self.resources.values()):
+        if self.mission not in {3, 4, 6} and any(self.resources.values()):
             raise ValueError("La expedición o reciclaje no deben cargar recursos.")
         if type(self.speed_percent) is not int or self.speed_percent not in range(10, 101, 10):
             raise ValueError("Velocidad inválida.")
@@ -76,7 +84,7 @@ class Flight:
             raise ValueError("Duración mínima o tipo de origen inválidos.")
         if self.purpose == "defender":
             from datetime import datetime
-            if self.mission not in {3, 4} or not self.threat_id or not self.impact_at or self.minimum_duration_seconds <= 0:
+            if self.mission not in {3, 4, 6} or not self.threat_id or not self.impact_at or self.minimum_duration_seconds <= 0:
                 raise ValueError("Faltan datos de la amenaza defensiva.")
             if datetime.fromisoformat(self.impact_at).tzinfo is None:
                 raise ValueError("La llegada del ataque debe incluir zona horaria.")

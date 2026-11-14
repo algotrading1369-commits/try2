@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 
 from ..domain.models import AccountSnapshot, CelestialBody
-from ..fleet.models import Flight, SHIP_IDS
+from ..fleet.models import Flight, SHIP_IDS, coordinates
 from .settings import DefenderSettings
 from .threats import Threat, resolve_target
 
@@ -14,6 +14,11 @@ def destination_options(snapshot: AccountSnapshot, origin_id: int, settings: Def
     if not snapshot.registry.is_fresh(settings.max_state_age_seconds):
         return [], "own_destinations_expired"
     bodies = snapshot.registry.data or []
+    if settings.mission == 6:
+        # Un destino de espacio profundo no es otro cuerpo de la cuenta.
+        if sum(body.id == origin_id for body in bodies) != 1:
+            return [], "own_destinations_expired"
+        return [], None
     if not any(body.id != origin_id for body in bodies):
         return [], "no_other_own_body"
     if not settings.destinations:
@@ -59,18 +64,27 @@ class EscapePlanner:
         if not ships:
             self.reason = "no_movable_ships"
             return None
+        if settings.mission == 6:
+            if ships.get("espionage_probe", 0) < 1:
+                self.reason = "espionage_probe_required"
+                return None
+            if not any(ships.get(ship, 0) > 0 for ship in ("small_cargo", "large_cargo")):
+                self.reason = "cargo_ship_required"
+                return None
         slot_data = snapshot.fleet_slots.data or {}
         if not snapshot.fleet_slots.is_fresh(settings.max_state_age_seconds) or not all(type(slot_data.get(key)) is int for key in ("fleet_total", "fleet_used")) or not 0 <= slot_data["fleet_used"] < slot_data["fleet_total"]:
             self.reason = "no_confirmed_free_fleet_slot"
             return None
-        if any(ship not in self.capacities for ship in ships):
+        # Las sondas pueden tener bodega cero; no se presupone capacidad de carga.
+        capacities = {**({"espionage_probe": 0} if settings.mission == 6 else {}), **self.capacities}
+        if any(ship not in capacities for ship in ships):
             self.reason = "effective_ship_capacity_unknown"
             return None
         values = body.resources.data or {}
         if not all(type(values.get(key)) is int and values[key] >= 0 for key in ("metal", "crystal", "deuterium")) or values["deuterium"] < settings.maximum_fuel:
             self.reason = "resources_or_fuel_unverified"
             return None
-        capacity = sum(self.capacities[ship] * count for ship, count in ships.items()) - settings.maximum_fuel
+        capacity = sum(capacities[ship] * count for ship, count in ships.items()) - settings.maximum_fuel
         if capacity < 0:
             self.reason = "fuel_margin_exceeds_capacity"
             return None
@@ -82,6 +96,18 @@ class EscapePlanner:
         for key in sorted(resources, key=lambda key: self.weights[key], reverse=True):
             load[key] = min(capacity, resources[key])
             capacity -= load[key]
+        if settings.mission == 6:
+            galaxy, system, _ = coordinates(body.body.coordinates)
+            # Para espionaje importa el regreso completo (ida + vuelta), sin permanencia.
+            minimum = max(math.ceil(settings.minimum_flight_seconds / 2), math.ceil(((threat.seconds_to_impact or 0) + settings.minimum_lead_seconds) / 2))
+            flight = Flight("fleet", 6, body.body.id, body.body.coordinates, f"{galaxy}:{system}:16",
+                            1, None, ships, load, settings.speed_percent, 1, "defensive_espionage16",
+                            purpose="defender", threat_id=threat.id, impact_at=threat.impact_at,
+                            origin_type=3 if body.body.kind == "moon" else 1,
+                            minimum_duration_seconds=minimum)
+            flight.validate()
+            self.reason = "planned"
+            return flight
         for destination in destinations:
             flight = Flight("fleet", settings.mission, body.body.id, body.body.coordinates, destination.coordinates,
                 3 if destination.kind == "moon" else 1, destination.id, ships, load, settings.speed_percent, 1, "defensive_evacuation",

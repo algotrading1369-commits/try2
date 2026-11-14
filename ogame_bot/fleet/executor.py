@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 from typing import Any
 
 from playwright.async_api import Page, Locator
@@ -17,7 +18,7 @@ from . import parsing
 from .models import Flight, SHIP_IDS, coordinates
 from .reader import FleetReader
 from ..adapters.ogame.reader import expand_event_panel
-from ..defender.threats import escape_guard
+from ..defender.threats import escape_guard, escape_return_guard
 
 
 def identity(document: Document, flight: Flight, config: Config, *, require_origin: bool = True) -> None:
@@ -72,7 +73,9 @@ class FleetExecutor:
     def _authorized(self, flight: Flight) -> bool:
         if flight.purpose == "defender":
             settings = self.config.defender
-            return settings.enabled and flight.mission == settings.mission and flight.speed_percent == settings.speed_percent and flight.destination_id in settings.destinations and (not settings.origins or flight.origin_id in settings.origins) and flight.minimum_duration_seconds >= settings.minimum_flight_seconds
+            destination_allowed = flight.mission == 6 or flight.destination_id in settings.destinations
+            minimum = math.ceil(settings.minimum_flight_seconds / 2) if flight.mission == 6 else settings.minimum_flight_seconds
+            return settings.enabled and flight.mission == settings.mission and flight.speed_percent == settings.speed_percent and destination_allowed and (not settings.origins or flight.origin_id in settings.origins) and flight.minimum_duration_seconds >= minimum
         settings = self.config.fleet
         if not settings.enabled or flight.speed_percent != settings.speed_percent:
             return False
@@ -97,7 +100,10 @@ class FleetExecutor:
         if not defensive and self.session.defense_paused is True:
             return {"state": "blocked", "reason": "defender_paused_routine_actions"}
         if self.config.brain.dry_run:
-            return {"state": "simulated", "action": flight.to_dict()}
+            result: dict[str, Any] = {"state": "simulated", "action": flight.to_dict()}
+            if flight.mission == 6:
+                result.update({"timing_verified": False, "requires_live_quote": True})
+            return result
         if flight.mission == 8:
             galaxy, system, _ = coordinates(flight.destination)
             field = await FleetReader(self.session, self.config).galaxy(galaxy, system)
@@ -223,6 +229,10 @@ class FleetExecutor:
             final_threat_reason = escape_guard(final_document, flight, self.config.defender) if defensive else None if (state.movements(final_document).data or {}).get("threat_status") == "clear" else "attack_status_changed_before_send"
             if final_threat_reason is not None or (not defensive and self.session.defense_paused is True):
                 return {"state": "blocked", "reason": "attack_status_changed_before_send"}
+            if defensive and flight.mission == 6:
+                return_reason = escape_return_guard(flight, duration, self.config.defender)
+                if return_reason is not None:
+                    return {"state": "blocked", "reason": return_reason}
             sender = await self._single(page, "send")
             if not await sender.is_visible() or not await sender.is_enabled():
                 return {"state": "blocked", "reason": "send_button_unavailable"}
