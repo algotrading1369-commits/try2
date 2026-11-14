@@ -5,7 +5,7 @@ from typing import Any
 import logging
 
 from ..brain.catalog import MINES, energy_delta
-from ..brain.settings import BrainSettings
+from ..brain.settings import BrainSettings, effective_brain_settings
 from ..brain.planner import Upgrade, afford, probe_bootstrap_action
 from ..config import Config
 from ..errors import IdentityMismatch, ReadError, ConnectionLost
@@ -94,7 +94,11 @@ class ActionExecutor:
         Upgrade.from_dict(upgrade.to_dict())
         if self.journal.pending("upgrade") is not None:
             return await self.reconcile()
-        settings = self.config.brain
+        configured = self.config.brain
+        completed = bool(configured.probe_body_id and self.journal.probe_completed(configured.probe_body_id))
+        if upgrade.kind == "shipyard" and completed:
+            return {"state": "completed", "reason": "probe_bootstrap_already_completed"}
+        settings = effective_brain_settings(configured, probe_completed=completed)
         bootstrap = probe_bootstrap_action(upgrade, settings)
         if settings.probe_target:
             allowed = bootstrap and (upgrade.kind == "shipyard" or (settings.builder_enabled if upgrade.kind == "building" else settings.research_enabled))
@@ -105,8 +109,10 @@ class ActionExecutor:
                 (upgrade.item == "solar_plant" and settings.auto_solar and upgrade.target_level <= settings.max_solar_level)
                 or any(goal.item == upgrade.item and upgrade.target_level <= goal.target_level for goal in settings.build_goals)
             )
-        else:
+        elif upgrade.kind == "research":
             allowed = settings.research_enabled and any(goal.item == upgrade.item and upgrade.target_level <= goal.target_level for goal in settings.research_goals)
+        else:
+            allowed = False
         if not allowed:
             return {"state": "blocked", "reason": "module_disabled_or_outside_configured_goals"}
         if self.session.defense_paused is True:

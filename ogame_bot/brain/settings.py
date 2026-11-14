@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,11 @@ class BrainSettings:
     probe_body_id: int | None = None
     probe_bootstrap_live: bool = False
     economic_live: bool = False
+
+
+def effective_brain_settings(settings: BrainSettings, *, probe_completed: bool) -> BrainSettings:
+    """A confirmed one-off bootstrap yields to the configured economic goals."""
+    return replace(settings, probe_target=0, probe_bootstrap_live=False) if settings.probe_target and probe_completed else settings
 
 
 def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:

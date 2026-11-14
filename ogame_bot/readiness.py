@@ -35,7 +35,9 @@ def diagnose(config: Config, snapshot: dict[str, Any] | None, now: datetime | No
     def add(code: str, state: str, message: str) -> None:
         checks.append({"code": code, "state": state, "message": message})
 
-    if config.brain.probe_bootstrap_live:
+    if config.brain.economic_live:
+        message = "Edificios e investigación con recursos reales según objetivos; flotas en simulación." if config.brain.dry_run else "Edificios, investigación y flotas habilitados en modo real."
+    elif config.brain.probe_bootstrap_live:
         message = "Preparación REAL limitada: requisitos y una sonda. Flotas en simulación." if config.brain.dry_run else "Preparación real de sonda y envíos habilitados; operación autónoma sin verificar."
     else:
         message = "Simulación activa: no se envían órdenes." if config.brain.dry_run else "Envíos habilitados en configuración; esto no prueba su funcionamiento."

@@ -13,6 +13,7 @@ from playwright.async_api import Error
 from ogame_bot.brain.catalog import BUILD, RESEARCH, SHIP_BUILD
 from ogame_bot.brain.planner import Planner, Upgrade
 from ogame_bot.brain.service import Brain
+from ogame_bot.brain.settings import Goal
 from ogame_bot.config import load_config
 from ogame_bot.core.action_executor import ActionExecutor
 from ogame_bot.errors import ConfigurationError
@@ -146,7 +147,37 @@ class BootstrapExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.journal.probe_completed(101))
         self.built = False
         report = await Brain(self.config, self.executor, self.journal).process(prepared_state())
-        self.assertEqual(report["result"]["state"], "completed")
+        self.assertTrue(report["probe_bootstrap_completed"])
+        self.assertEqual(report["automation_mode"], "routine")
+        self.assertFalse(any(action["kind"] == "shipyard" for action in report["actions"]))
+        self.sender.click.assert_awaited_once()
+
+    async def test_completed_probe_resumes_saved_mine_goals_in_simulation(self):
+        identifier = self.journal.prepare(probe_order())
+        self.journal.mark(identifier, "confirmed")
+        cfg = replace(self.config, brain=replace(self.config.brain, build_goals=(Goal("metal_mine", 16),), research_enabled=False, economic_live=False))
+        executor = ActionExecutor(self.session, cfg, self.journal)
+        report = await Brain(cfg, executor, self.journal).process(prepared_state())
+        self.assertEqual(report["selected"]["item"], "metal_mine")
+        self.assertEqual(report["result"]["state"], "simulated")
+        self.assertTrue(report["dry_run"])
+        self.sender.click.assert_not_awaited()
+
+    async def test_completed_probe_allows_only_configured_live_routine_goals(self):
+        identifier = self.journal.prepare(probe_order())
+        self.journal.mark(identifier, "confirmed")
+        cfg = replace(self.config, brain=replace(self.config.brain, build_goals=(Goal("metal_mine", 16),), research_enabled=False, economic_live=True))
+        from test_brain import document
+        self.page.content = AsyncMock(return_value=document(level=3))
+        self.card.get_attribute = AsyncMock(return_value="Mina de metal")
+        self.card.get_by_role.return_value = self.sender
+        self.page.locator.side_effect = lambda selector: self.card if selector == '.technology[data-technology="1"]' else self.general
+        self.sender.click = AsyncMock()
+        report = await Brain(cfg, ActionExecutor(self.session, cfg, self.journal), self.journal).process(prepared_state())
+        self.assertEqual(report["selected"]["item"], "metal_mine")
+        self.assertFalse(report["dry_run"])
+        self.sender.click.assert_awaited_once()
+        self.assertEqual((await ActionExecutor(self.session, cfg, self.journal).execute(probe_order()))["state"], "pending")
         self.sender.click.assert_awaited_once()
 
     async def test_uncertain_build_is_not_clicked_again(self):

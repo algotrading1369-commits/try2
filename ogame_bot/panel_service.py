@@ -56,7 +56,7 @@ class PanelService:
         self.installation = hashlib.sha256(str(self.path).encode()).hexdigest()[:16]
         project = Path(__file__).parent
         digest = hashlib.sha256()
-        for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "core/panel_control.py", "core/session.py", "core/browser.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
+        for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "core/panel_control.py", "core/session.py", "core/browser.py", "core/action_executor.py", "brain/service.py", "brain/settings.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
             digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None

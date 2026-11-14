@@ -57,8 +57,10 @@ con recursos reales según sus objetivos, manteniendo las flotas en simulación.
 Está desactivada por defecto y no habilita fabricación general de naves.
 
 La preparación de sonda tiene su propia opción real limitada. Mientras esté
-seleccionada, pausa las prioridades normales incluso después de completarse;
-desactívala en Hangar para probar el constructor habitual. Ambos modos reales
+pendiente, prioriza sus requisitos. Tras confirmar la sonda en el historial,
+retoma automáticamente las prioridades normales, incluso después de reiniciar.
+La excepción real de sonda no habilita construcciones normales: estas respetan
+la opción independiente `economic_live`. Ambos modos reales
 respetan comprobaciones de identidad, recursos, amenazas, colas y registro.
 
 ## Parada

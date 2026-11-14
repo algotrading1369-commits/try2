@@ -23,9 +23,9 @@ const moduleDefinitions = [
  ['fleet.expeditions.top1_observed_at','Fecha del dato manual (ISO con zona horaria)','nullableText'],['fleet.expeditions.top1_max_age_seconds','Vigencia del top 1 (s)','number',1],
  ['fleet.expeditions.base_cap_override','Capacidad base manual (opcional)','nullable',1],['fleet.expeditions.economy_speed','Velocidad económica','nullable',1],
  ['fleet.expeditions.player_class','Clase','select',[['discoverer','Descubridor'],['collector','Recolector'],['general','General']]],['fleet.expeditions.resource_bonus_percent','Bonificación de recursos (%)','number',0]]]]},
- {id:'shipyard',name:'Hangar',icon:'⚒',help:'Fabricación disponible: una sonda con sus requisitos. El historial confirmado evita repetirla tras reiniciar. La cola general de otras naves todavía no está implementada.',groups:[
+ {id:'shipyard',name:'Hangar',icon:'⚒',help:'Fabricación disponible: una sonda con sus requisitos. Tras confirmarla se retoma la cola normal; el historial evita repetirla tras reiniciar. La cola general de otras naves todavía no está implementada.',groups:[
  ['Preparación de sonda',[
- ['automation.probe_target','Priorizar preparación de una sonda','probe'],['automation.probe_bootstrap_live','Usar recursos reales para los requisitos y una sonda','bool'],['automation.probe_body_id','ID del planeta de fabricación','nullable',1]]]]},
+ ['automation.probe_target','Preparar una sonda y después continuar con mis objetivos','probe'],['automation.probe_bootstrap_live','Usar recursos reales para los requisitos y una sonda','bool'],['automation.probe_body_id','ID del planeta de fabricación','nullable',1]]]]},
  {id:'defense',name:'Defensa',icon:'◇',help:'Monitorización de amenazas y frecuencia de revisión. La detección de ataques y la evacuación son pasos distintos; el resultado y los bloqueos se muestran debajo.',groups:[
  ['Monitorización',[
  ['defender.enabled','Monitorizar ataques','bool'],['defender.origins','IDs de cuerpos vigilados (vacío = los que admita el planificador)','ids'],['defender.pause_on_unknown','Pausar rutinas si el estado es desconocido','bool'],

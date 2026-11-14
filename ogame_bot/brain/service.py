@@ -10,6 +10,7 @@ from ..domain.models import AccountSnapshot, utc_now
 from ..storage.orders import OrderJournal
 from ..storage.snapshots import save_snapshot
 from .planner import Planner, Upgrade
+from .settings import effective_brain_settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +33,25 @@ class Brain:
         return next((action for action in actions if action.kind != last), actions[0])
 
     async def process(self, snapshot: AccountSnapshot) -> dict[str, Any]:
-        if self.config.brain.probe_target and self.journal.probe_completed(self.config.brain.probe_body_id):
+        completed = bool(self.config.brain.probe_body_id and self.journal.probe_completed(self.config.brain.probe_body_id))
+        if self.config.brain.probe_target and completed:
             if not self._probe_completion_announced:
-                logger.info("SONDA COMPLETADA Y CONFIRMADA: preparación finalizada; no se fabricarán más unidades.")
+                logger.info("SONDA COMPLETADA Y CONFIRMADA: continúa la cola normal de edificios e investigación; no se fabricarán más sondas.")
                 self._probe_completion_announced = True
-            report = {"schema_version": 1, "created_at": utc_now(), "dry_run": self.config.brain.dry_run,
-                      "actions": [], "notes": [{"reason": "probe_bootstrap_already_completed"}],
-                      "selected": None, "result": {"state": "completed"}}
-            save_snapshot(self.config.brain.plan_file, report)
-            return report
+        settings = effective_brain_settings(self.config.brain, probe_completed=completed)
+        self.planner.settings = settings
         actions = self.planner.plan(snapshot)
         selected = self.select(actions)
         report: dict[str, Any] = {
-            "schema_version": 1, "created_at": utc_now(), "dry_run": not uses_real_resources(selected, self.config.brain) if selected is not None else self.config.brain.dry_run,
+            "schema_version": 1, "created_at": utc_now(), "dry_run": not uses_real_resources(selected, settings) if selected is not None else self.config.brain.dry_run,
             "cost_model": "classic_without_discounts", "roi_model": "estimated_full_production",
             "actions": [action.to_dict() for action in actions], "notes": self.planner.notes,
             "selected": selected.to_dict() if selected else None,
             "result": {"state": "planned"},
         }
-        report["probe_bootstrap_live"] = self.config.brain.probe_bootstrap_live
+        report["probe_bootstrap_live"] = settings.probe_bootstrap_live
+        report["probe_bootstrap_completed"] = completed
+        report["automation_mode"] = "probe" if settings.probe_target else "routine"
         # Una propuesta queda guardada incluso si el proceso se interrumpe al ejecutar.
         save_snapshot(self.config.brain.plan_file, report)
         if self.journal.pending("upgrade") is not None:
@@ -60,5 +61,5 @@ class Brain:
         else:
             report["result"] = await self.executor.execute(selected)
         save_snapshot(self.config.brain.plan_file, report)
-        logger.info("Brain: %s propuestas, resultado: %s, simulación: %s, preparación limitada de sonda: %s.", len(actions), report["result"]["state"], report["dry_run"], self.config.brain.probe_target == 1)
+        logger.info("Brain: modo %s, %s propuestas, resultado: %s, simulación: %s, siguiente acción: %s, motivos: %s.", report["automation_mode"], len(actions), report["result"]["state"], report["dry_run"], selected.item if selected else "ninguna", ", ".join(note["reason"] for note in self.planner.notes) or "sin bloqueos de planificación")
         return report
