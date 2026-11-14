@@ -42,7 +42,7 @@ class BotRuntime:
         if journal is not None and mode in {"full", "defender"}:
             scheduler.add("reconcile", self._reconcile, lambda: (config.scheduler.reconciliation_min_seconds, config.scheduler.reconciliation_max_seconds), allowed=self._reconciliation_ready)
         if mode == "full":
-            if self.brain is not None and (config.brain.builder_enabled or config.brain.research_enabled):
+            if self.brain is not None and (config.brain.builder_enabled or config.brain.research_enabled or config.brain.probe_target):
                 scheduler.add("brain", self._brain, lambda: (config.brain.min_interval_seconds, config.brain.max_interval_seconds), allowed=self._routine_ready)
             if self.fleet is not None and config.fleet.enabled:
                 scheduler.add("fleet", self._fleets, lambda: (config.fleet.min_interval_seconds, config.fleet.max_interval_seconds), allowed=self._routine_ready)

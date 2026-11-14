@@ -1,5 +1,7 @@
 # OGame Bot — proyecto modular Python
 
+> Preparación de sonda: `probe_bootstrap_live: true` permite gastar recursos normales solo en sus requisitos y una unidad, aunque las flotas sigan en simulación. Está desactivado por defecto en la plantilla. Ver [SONDA.md](SONDA.md).
+
 Implementación independiente del prototipo de la carpeta superior. Python 3.11+.
 No comparte su perfil ni cambia los archivos de estado del prototipo anterior.
 Mejoras y envíos parten en simulación; la ejecución real depende de dry_run.

@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..domain.models import AccountSnapshot, BodySnapshot, Reading
-from .catalog import BUILD, RESEARCH, MINES, Technology, energy_delta, level_curve, solar_gain
+from .catalog import BUILD, RESEARCH, SHIP_BUILD, PROBE_BUILD_REQUIREMENTS, PROBE_RESEARCH_REQUIREMENTS, MINES, Technology, energy_delta, level_curve, solar_gain
 from .settings import BrainSettings, Goal
 
 
@@ -23,7 +23,7 @@ class Upgrade:
 
     @property
     def technology(self) -> Technology:
-        return (BUILD if self.kind == "building" else RESEARCH)[self.item]
+        return {"building": BUILD, "research": RESEARCH, "shipyard": SHIP_BUILD}[self.kind][self.item]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -31,12 +31,15 @@ class Upgrade:
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Upgrade:
         item = cls(**raw)
-        if item.kind not in {"building", "research"} or item.item not in (BUILD if item.kind == "building" else RESEARCH):
+        catalogs = {"building": BUILD, "research": RESEARCH, "shipyard": SHIP_BUILD}
+        if item.kind not in catalogs or item.item not in catalogs[item.kind]:
             raise ValueError("Orden con tecnología desconocida.")
         if type(item.body_id) is not int or item.body_id <= 0 or type(item.current_level) is not int or type(item.target_level) is not int or not 0 <= item.current_level < 100 or item.target_level != item.current_level + 1:
             raise ValueError("Orden con cuerpo o nivel inválido.")
         if item.cost != item.technology.cost(item.target_level):
             raise ValueError("El coste de la orden no coincide con el modelo.")
+        if item.kind == "shipyard" and (item.current_level != 0 or item.target_level != 1):
+            raise ValueError("La preparación solo permite fabricar una sonda desde inventario cero.")
         return item
 
 
@@ -53,6 +56,15 @@ def free(reading: Reading[dict[str, str]], max_age: float) -> bool:
 
 def afford(resources: dict[str, int], cost: dict[str, int], reserve: dict[str, int]) -> bool:
     return all(type(resources.get(resource)) is int and resources[resource] >= amount + reserve[resource] for resource, amount in cost.items())
+
+
+def probe_bootstrap_action(action: Upgrade, settings: BrainSettings) -> bool:
+    if settings.probe_target != 1 or action.body_id != settings.probe_body_id:
+        return False
+    if action.kind == "shipyard":
+        return action.item == "espionage_probe" and action.current_level == 0 and action.target_level == 1
+    limits = PROBE_BUILD_REQUIREMENTS if action.kind == "building" else PROBE_RESEARCH_REQUIREMENTS
+    return action.item in limits and action.target_level <= limits[action.item]
 
 
 class Planner:
@@ -156,6 +168,8 @@ class Planner:
         if not snapshot.movements.is_fresh(self.max_age) or (snapshot.movements.data or {}).get("threat_status") != "clear":
             self.note(None, "attacks_detected_unknown_or_expired")
             return []
+        if self.settings.probe_target:
+            return self._probe_bootstrap(snapshot)
         proposals: list[Upgrade] = []
         for body in snapshot.bodies:
             if body.body.kind != "planet":
@@ -198,3 +212,50 @@ class Planner:
                         self.note(None, "research_resources_or_reserve_insufficient")
                     break
         return proposals
+
+    def _probe_bootstrap(self, snapshot: AccountSnapshot) -> list[Upgrade]:
+        body = next((body for body in snapshot.bodies if body.body.id == self.settings.probe_body_id and body.body.kind == "planet"), None)
+        if body is None:
+            self.note(None, "probe_origin_unknown")
+            return []
+        count = (body.ships.data or {}).get("espionage_probe")
+        if not body.ships.is_fresh(self.max_age) or type(count) is not int or count < 0:
+            self.note(body.body.id, "probe_inventory_unknown_or_expired")
+            return []
+        if count >= 1:
+            self.note(body.body.id, "probe_target_satisfied")
+            return []
+        resources = self._resources(body)
+        if resources is None:
+            return []
+        for item, target in PROBE_BUILD_REQUIREMENTS.items():
+            current = level(body.facilities, item, self.max_age)
+            if current is None:
+                self.note(body.body.id, "probe_facility_unknown_" + item)
+                return []
+            if current < target:
+                if not self.settings.builder_enabled or not free(body.construction_queue, self.max_age):
+                    self.note(body.body.id, "probe_construction_queue_or_module_unavailable")
+                    return []
+                action = Upgrade("building", item, body.body.id, body.body.coordinates, current, current + 1, BUILD[item].cost(current + 1), "probe_prerequisite")
+                return self._probe_affordable(action, resources)
+        for item, target in PROBE_RESEARCH_REQUIREMENTS.items():
+            current = level(snapshot.research, item, self.max_age)
+            if current is None:
+                self.note(body.body.id, "probe_research_unknown_" + item)
+                return []
+            if current < target:
+                if not self.settings.research_enabled or not free(snapshot.research_queue, self.max_age):
+                    self.note(body.body.id, "probe_research_queue_or_module_unavailable")
+                    return []
+                action = Upgrade("research", item, body.body.id, body.body.coordinates, current, current + 1, RESEARCH[item].cost(current + 1), "probe_prerequisite")
+                return self._probe_affordable(action, resources)
+        # El ejecutor vuelve a verificar la cola real del hangar antes de fabricar.
+        action = Upgrade("shipyard", "espionage_probe", body.body.id, body.body.coordinates, 0, 1, SHIP_BUILD["espionage_probe"].cost(1), "probe_bootstrap")
+        return self._probe_affordable(action, resources)
+
+    def _probe_affordable(self, action: Upgrade, resources: dict[str, int]) -> list[Upgrade]:
+        if afford(resources, action.cost, self.settings.reserve):
+            return [action]
+        self.note(action.body_id, "probe_resources_or_reserve_insufficient")
+        return []

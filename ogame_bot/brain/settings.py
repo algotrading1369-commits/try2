@@ -37,6 +37,9 @@ class BrainSettings:
     resource_weights: dict[str, float]
     production_multipliers: dict[str, float]
     temperatures: dict[int, float]
+    probe_target: int = 0
+    probe_body_id: int | None = None
+    probe_bootstrap_live: bool = False
 
 
 def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
@@ -46,7 +49,8 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         "research": {"enabled", "priorities"},
     }
     for section, keys in expected.items():
-        if not isinstance(raw.get(section), dict) or set(raw[section]) != keys:
+        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live"} if section == "automation" else set()
+        if not isinstance(raw.get(section), dict) or not keys <= set(raw[section]) or set(raw[section]) - keys - optional:
             raise ConfigurationError(f"Campos incorrectos en {section}.")
 
     def get(section: str, name: str, kind: type) -> Any:
@@ -113,6 +117,15 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
             raise ConfigurationError("Ruta de automatización vacía.")
         return (base / value).resolve()
 
+    probe_target = raw["automation"].get("probe_target", 0)
+    probe_body = raw["automation"].get("probe_body_id")
+    probe_live = raw["automation"].get("probe_bootstrap_live", False)
+    if type(probe_target) is not int or probe_target not in {0, 1} or type(probe_live) is not bool:
+        raise ConfigurationError("probe_target debe ser 0 o 1 y probe_bootstrap_live un booleano.")
+    if probe_body is not None and (type(probe_body) is not int or probe_body <= 0):
+        raise ConfigurationError("probe_body_id debe ser un identificador positivo.")
+    if (probe_target == 1 and probe_body is None) or (probe_live and probe_target != 1):
+        raise ConfigurationError("La preparación de sonda requiere objetivo 1 y planeta explícito.")
     return BrainSettings(
         dry_run=get("automation", "dry_run", bool), journal_file=path("journal_file"), plan_file=path("plan_file"),
         min_interval_seconds=minimum_interval, max_interval_seconds=maximum_interval,
@@ -123,4 +136,5 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         max_payback_days=number(raw["builder"]["max_payback_days"], "max_payback_days", 0.01),
         economy_speed=speed, resource_weights=mapping("resource_weights"),
         production_multipliers=mapping("production_multipliers"), temperatures=temperatures,
+        probe_target=probe_target, probe_body_id=probe_body, probe_bootstrap_live=probe_live,
     )

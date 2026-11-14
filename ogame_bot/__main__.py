@@ -59,6 +59,8 @@ def main() -> int:
             print(format_report(diagnose(config, load_state(config.scanner_output_file))))
             return 0
         setup_logging(config)
+        if config.brain.probe_bootstrap_live:
+            logging.getLogger("ogame_bot").warning("Preparación REAL limitada: requisitos de la sonda y una unidad en el planeta configurado. La simulación de flotas sigue en %s.", config.brain.dry_run)
         from .app import run
         asyncio.run(run(config, scan_once=args.scan_once, session_only=args.session_only, scanner_only=args.scanner_only, brain_once=args.brain_once, fleet_once=args.fleet_once, defender_once=args.defender_once, defender_only=args.defender_only))
     except BrowserClosed:

@@ -222,9 +222,12 @@ def movements(document: Document) -> Reading[dict[str, Any]]:
     return result(data, issues, found=bool(rows) or alert_status in {"noAttack", "soon", "attack"})
 
 
-def queue_state(document: Document, *, research: bool = False) -> Reading[dict[str, str]]:
+def queue_state(document: Document, *, research: bool = False, shipyard: bool = False) -> Reading[dict[str, str]]:
     """Solo acepta estados explícitos en el panel de producción, nunca silencio."""
-    panels = document.root.find(lambda node: node.attrs.get("id") == "productionboxBottom" or node.has_class("productionboxBottom"))
+    if shipyard:
+        panels = document.by_id("productionboxshipyardcomponent")
+    else:
+        panels = document.root.find(lambda node: node.attrs.get("id") == "productionboxBottom" or node.has_class("productionboxBottom"))
     panel = one(panels)
     if panel is None:
         return Reading.unavailable("queue_panel_missing_or_duplicate")
@@ -233,11 +236,11 @@ def queue_state(document: Document, *, research: bool = False) -> Reading[dict[s
         panel = one(scoped)
         if panel is None:
             return Reading.unavailable("queue_panel_missing_or_duplicate")
-    empty_phrases = {"No hay ninguna investigación en progreso en este momento."} if research else {"No hay edificios en construcción", "No hay edificios en construcción."}
+    empty_phrases = {"No se están construyendo naves o defensas."} if shipyard else {"No hay ninguna investigación en progreso en este momento."} if research else {"No hay edificios en construcción", "No hay edificios en construcción."}
     if panel.find(lambda node: node.has_class("countDown") or node.attrs.get("id") in {"buildingCountdown", "researchCountdown"}):
         return Reading({"state": "busy"}, utc_now(), "complete")
     idle_nodes = panel.find(lambda node: node.tag == "td" and node.has_class("idle"))
     explicit_idle = len(idle_nodes) == 1 and any(phrase in idle_nodes[0].text for phrase in empty_phrases)
-    if panel.text.strip() in empty_phrases or (scoped and explicit_idle):
+    if panel.text.strip() in empty_phrases or ((scoped or shipyard) and explicit_idle):
         return Reading({"state": "free"}, utc_now(), "complete")
     return Reading.unavailable("queue_state_unknown")

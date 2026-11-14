@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..brain.catalog import MINES, energy_delta
-from ..brain.planner import Upgrade, afford
+from ..brain.planner import Upgrade, afford, probe_bootstrap_action
 from ..config import Config
 from ..errors import IdentityMismatch, ReadError, ConnectionLost
 from ..scanner.dom import Document
@@ -25,7 +25,7 @@ def verify_identity(document: Document, upgrade: Upgrade, config: Config) -> Non
 
 
 def current_level(document: Document, upgrade: Upgrade) -> int | None:
-    reading = parsing.technologies(document, {upgrade.technology.id: upgrade.item})
+    reading = parsing.technologies(document, {upgrade.technology.id: upgrade.item}, fleet=upgrade.kind == "shipyard")
     return (reading.data or {}).get(upgrade.item)
 
 
@@ -36,7 +36,7 @@ def preflight(document: Document, upgrade: Upgrade, config: Config) -> str | Non
     threat = parsing.movements(document)
     if (threat.data or {}).get("threat_status") != "clear":
         return "attacks_detected_or_unknown"
-    queue = parsing.queue_state(document, research=upgrade.kind == "research")
+    queue = parsing.queue_state(document, research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
     if (queue.data or {}).get("state") != "free":
         return "queue_busy_or_unknown"
     resources = parsing.resources(document)
@@ -84,7 +84,12 @@ class ActionExecutor:
         if self.journal.pending("upgrade") is not None:
             return await self.reconcile()
         settings = self.config.brain
-        if upgrade.kind == "building":
+        bootstrap = probe_bootstrap_action(upgrade, settings)
+        if settings.probe_target:
+            allowed = bootstrap and (upgrade.kind == "shipyard" or (settings.builder_enabled if upgrade.kind == "building" else settings.research_enabled))
+            if self.journal.probe_completed(settings.probe_body_id):
+                return {"state": "completed", "reason": "probe_bootstrap_already_completed"}
+        elif upgrade.kind == "building":
             allowed = settings.builder_enabled and (
                 (upgrade.item == "solar_plant" and settings.auto_solar and upgrade.target_level <= settings.max_solar_level)
                 or any(goal.item == upgrade.item and upgrade.target_level <= goal.target_level for goal in settings.build_goals)
@@ -95,10 +100,11 @@ class ActionExecutor:
             return {"state": "blocked", "reason": "module_disabled_or_outside_configured_goals"}
         if self.session.defense_paused is True:
             return {"state": "blocked", "reason": "defender_paused_routine_actions"}
-        if self.config.brain.dry_run:
+        if self.config.brain.dry_run and not (settings.probe_bootstrap_live and bootstrap):
             return {"state": "simulated", "action": upgrade.to_dict()}
         async with self.session.read_page(upgrade.technology.component, upgrade.body_id) as page:
             await page.locator(".technology[data-technology]").first.wait_for(state="attached")
+            await page.locator("#eventboxFilled:visible, #eventboxBlank:visible").first.wait_for(state="visible")
             document = Document(await page.content())
             reason = preflight(document, upgrade, self.config)
             if reason is not None:
@@ -107,8 +113,24 @@ class ActionExecutor:
             card = page.locator(f'.technology[data-technology="{technology.id}"]')
             if await card.count() != 1 or await card.get_attribute("aria-label") != technology.name_es:
                 return {"state": "blocked", "reason": "technology_card_unrecognized"}
-            label = f"Investigar {technology.name_es} del nivel {upgrade.target_level}" if upgrade.kind == "research" else f"Expandir {technology.name_es} al nivel {upgrade.target_level}"
-            button = card.get_by_role("button", name=label, exact=True)
+            if upgrade.kind == "shipyard":
+                if await card.get_attribute("data-status") != "on":
+                    return {"state": "blocked", "reason": "shipyard_requirements_or_resources_unavailable"}
+                await card.click()
+                amount = page.locator("#technologydetails #build_amount")
+                await amount.wait_for(state="visible")
+                if await amount.count() != 1:
+                    return {"state": "blocked", "reason": "ship_quantity_control_ambiguous"}
+                await amount.fill("1")
+                if await amount.input_value() != "1":
+                    return {"state": "blocked", "reason": "ship_quantity_not_verified"}
+                button = page.locator('#technologydetails button.upgrade[data-technology="210"]')
+                reason = preflight(Document(await page.content()), upgrade, self.config)
+                if reason is not None:
+                    return {"state": "blocked", "reason": reason}
+            else:
+                label = f"Investigar {technology.name_es} del nivel {upgrade.target_level}" if upgrade.kind == "research" else f"Expandir {technology.name_es} al nivel {upgrade.target_level}"
+                button = card.get_by_role("button", name=label, exact=True)
             if await button.count() != 1 or not await button.is_visible() or not await button.is_enabled():
                 return {"state": "blocked", "reason": "upgrade_button_unavailable"}
             if self.session.defense_paused is True:

@@ -35,7 +35,11 @@ def diagnose(config: Config, snapshot: dict[str, Any] | None, now: datetime | No
     def add(code: str, state: str, message: str) -> None:
         checks.append({"code": code, "state": state, "message": message})
 
-    add("execution_mode", "info", "Simulación activa: no se envían órdenes." if config.brain.dry_run else "Envíos habilitados en configuración; esto no prueba su funcionamiento.")
+    if config.brain.probe_bootstrap_live:
+        message = "Preparación REAL limitada: requisitos y una sonda. Flotas en simulación." if config.brain.dry_run else "Preparación real de sonda y envíos habilitados; operación autónoma sin verificar."
+    else:
+        message = "Simulación activa: no se envían órdenes." if config.brain.dry_run else "Envíos habilitados en configuración; esto no prueba su funcionamiento."
+    add("execution_mode", "info", message)
     if config.defender.enabled or config.fleet.enabled:
         if not config.fleet.capacities:
             add("ship_capacities", "blocked", "Faltan capacidades de carga verificadas en fleet.capacities.")

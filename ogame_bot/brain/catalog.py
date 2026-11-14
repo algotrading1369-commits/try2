@@ -64,6 +64,9 @@ RESEARCH = {
     "intergalactic_research_network": Technology(123, "Red de investigación intergaláctica", "research", (240000, 400000, 160000), "2"),
     "astrophysics": Technology(124, "Astrofísica", "research", (4000, 8000, 4000), "1.75", True),
 }
+SHIP_BUILD = {"espionage_probe": Technology(210, "Sonda de espionaje", "shipyard", (0, 1000, 0), "1")}
+PROBE_BUILD_REQUIREMENTS = {"robotics_factory": 2, "research_lab": 3, "shipyard": 3}
+PROBE_RESEARCH_REQUIREMENTS = {"energy_technology": 1, "combustion_drive": 3, "espionage_technology": 2}
 MINES = {"metal_mine": ("metal", 30, 10), "crystal_mine": ("crystal", 20, 10), "deuterium_synthesizer": ("deuterium", 10, 20)}
 
 

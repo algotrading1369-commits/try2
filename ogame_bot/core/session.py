@@ -155,7 +155,7 @@ class SessionManager:
     @asynccontextmanager
     async def read_page(self, component: str, body_id: int | None = None, *, galaxy: int | None = None, system: int | None = None) -> AsyncIterator[Page]:
         """Navegación de lectura exclusiva; verifica identidad y componente tras cargar."""
-        if component not in {"overview", "supplies", "facilities", "research", "fleetdispatch", "movement", "galaxy"}:
+        if component not in {"overview", "supplies", "facilities", "research", "shipyard", "fleetdispatch", "movement", "galaxy"}:
             raise ReadError("Componente de lectura no admitido.")
         if body_id is not None and (type(body_id) is not int or body_id <= 0):
             raise ReadError("Identificador de cuerpo inválido.")

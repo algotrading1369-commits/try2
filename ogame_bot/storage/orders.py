@@ -105,3 +105,14 @@ class OrderJournal:
     def last_completed_kind(self) -> str | None:
         row = self.connection.execute("SELECT action FROM orders WHERE state='confirmed' AND scope='upgrade' ORDER BY updated_at DESC, rowid DESC LIMIT 1").fetchone()
         return json.loads(row[0])["kind"] if row is not None else None
+
+    def probe_completed(self, body_id: int) -> bool:
+        rows = self.connection.execute("SELECT action FROM orders WHERE state='confirmed' AND scope='upgrade' ORDER BY updated_at DESC, rowid DESC")
+        try:
+            for row in rows:
+                action = json.loads(row[0])
+                if action.get("kind") == "shipyard" and action.get("item") == "espionage_probe" and action.get("body_id") == body_id:
+                    return True
+        except (ValueError, TypeError, AttributeError) as error:
+            raise CoreError("No se pudo verificar el historial de fabricación; no se enviarán nuevas órdenes.") from error
+        return False
