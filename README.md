@@ -579,5 +579,10 @@ Este runner está disponible para reproducir la verificación:
 ```
 
 La configuración también se validó con la entrada real --check-config.
-El acceso real al Lobby, la persistencia real de cookies y los selectores
-actuales de Gameforge siguen pendientes de validación con navegador.
+Se inspeccionaron manualmente las páginas reales de flota, recursos e investigación
+de OGame ES 13.1.0-r5. El adaptador admite el indicador `#attack_alert.noAttack`,
+el aviso explícito de planeta sin naves y las colas vacías dentro de
+`#productionboxbuildingcomponent` y `#productionboxresearchcomponent`.
+Las regresiones usan fragmentos mínimos sin scripts ni datos de la cuenta.
+Esto no valida envíos, ataques entrantes reales ni funcionamiento prolongado.
+Tras actualizar, ejecutar primero en simulación y comprobar los nuevos registros.

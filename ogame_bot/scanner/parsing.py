@@ -64,6 +64,8 @@ def resources(document: Document) -> Reading[dict[str, int]]:
 
 
 def technologies(document: Document, catalog: dict[int, str], *, fleet: bool = False) -> Reading[dict[str, int]]:
+    if fleet and empty_fleet(document):
+        return Reading({name: 0 for name in catalog.values()}, utc_now(), "complete")
     values: dict[str, int] = {}
     issues: list[str] = []
     for identifier, name in catalog.items():
@@ -84,6 +86,16 @@ def technologies(document: Document, catalog: dict[int, str], *, fleet: bool = F
         else:
             values[name] = value
     return result(values, issues, found=bool(values))
+
+
+def empty_fleet(document: Document) -> bool:
+    """Mensaje explícito observado en fleetdispatch ES 13.1.0-r5."""
+    warning = one(document.by_id("warning"))
+    return (
+        warning is not None
+        and any(node.tag == "p" and node.text.strip() == "No hay naves en este planeta." for node in warning.walk())
+        and not document.root.find(lambda node: node.has_class("technology") and "data-technology" in node.attrs)
+    )
 
 
 def body_registry(document: Document, origin: str) -> Reading[list[CelestialBody]]:
@@ -140,6 +152,12 @@ def movements(document: Document) -> Reading[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     alert = one(document.by_id("attack_alert"))
     alert_status = alert.attrs.get("data-status") if alert else None
+    if alert is not None:
+        class_statuses = {status for status in ("noAttack", "soon", "attack") if alert.has_class(status)}
+        signals = class_statuses | ({alert_status} if alert_status in {"noAttack", "soon", "attack"} else set())
+        alert_status = next(iter(signals)) if len(signals) == 1 else None
+        if len(signals) > 1:
+            issues.append("conflicting_attack_status")
     rows = document.root.find(lambda node: node.has_class("eventFleet"))
     seen: set[str] = set()
     for index, row in enumerate(rows):
@@ -201,9 +219,16 @@ def queue_state(document: Document, *, research: bool = False) -> Reading[dict[s
     panel = one(panels)
     if panel is None:
         return Reading.unavailable("queue_panel_missing_or_duplicate")
+    scoped = panel.find(lambda node: node.attrs.get("id") == ("productionboxresearchcomponent" if research else "productionboxbuildingcomponent"))
+    if scoped:
+        panel = one(scoped)
+        if panel is None:
+            return Reading.unavailable("queue_panel_missing_or_duplicate")
     empty_phrases = {"No hay ninguna investigación en progreso en este momento."} if research else {"No hay edificios en construcción", "No hay edificios en construcción."}
     if panel.find(lambda node: node.has_class("countDown") or node.attrs.get("id") in {"buildingCountdown", "researchCountdown"}):
         return Reading({"state": "busy"}, utc_now(), "complete")
-    if panel.text.strip() in empty_phrases:
+    idle_nodes = panel.find(lambda node: node.tag == "td" and node.has_class("idle"))
+    explicit_idle = len(idle_nodes) == 1 and any(phrase in idle_nodes[0].text for phrase in empty_phrases)
+    if panel.text.strip() in empty_phrases or (scoped and explicit_idle):
         return Reading({"state": "free"}, utc_now(), "complete")
     return Reading.unavailable("queue_state_unknown")

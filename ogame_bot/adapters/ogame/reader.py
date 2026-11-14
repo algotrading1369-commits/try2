@@ -29,7 +29,10 @@ class OGameReader:
 
     async def capture(self, component: str, body_id: int | None = None, *, expand_events: bool = False) -> Document:
         async with self.session.read_page(component, body_id) as page:
-            if component in {"supplies", "facilities", "research", "fleetdispatch"}:
+            if component == "fleetdispatch":
+                # Un planeta sin naves no tiene tarjetas technology.
+                await page.locator('.technology[data-technology], #warning p').first.wait_for(state="attached")
+            elif component in {"supplies", "facilities", "research"}:
                 # Espera contenido de la sección, no solo el DOM base autenticado.
                 await page.locator(".technology[data-technology]").first.wait_for(state="attached")
             if expand_events:
