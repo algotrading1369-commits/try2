@@ -192,6 +192,15 @@ def movements(document: Document) -> Reading[dict[str, Any]]:
         destination_type_raw = row.attrs.get("data-destination-type", "")
         destination_id_raw = row.attrs.get("data-destination-id", "")
         destination_type = int(destination_type_raw) if destination_type_raw in {"1", "3"} else None
+        # Variante observada en ES 13.1.0-r5: el tipo está en el icono del destino.
+        destinations = row.find(lambda node: node.has_class("destFleet"))
+        icons = destinations[0].find(lambda node: node.tag == "figure" and node.has_class("planetIcon")) if len(destinations) == 1 else []
+        if len(icons) == 1 and icons[0].has_class("planet") and not icons[0].has_class("moon"):
+            if destination_type not in {None, 1}:
+                issues.append("conflicting_destination_type")
+                destination_type = None
+            else:
+                destination_type = 1
         destination_id = int(destination_id_raw) if destination_id_raw.isascii() and destination_id_raw.isdigit() and int(destination_id_raw) > 0 else None
         events.append({"id": identifier, "mission": mission, "returning": returning,
                        "hostile": hostile, "arrival_at": impact, **coordinates,

@@ -10,7 +10,10 @@ from ...scanner.parsing import current_body_id
 
 
 async def expand_event_panel(page: Page) -> None:
-    opener = page.locator("#eventboxFilled")
+    # El resumen no abre necesariamente el listado: el control real es el enlace.
+    opener = page.locator("#js_eventDetailsClosed")
+    if await opener.count() == 0:
+        opener = page.locator("#eventboxFilled")
     content = page.locator("#eventContent")
     if await opener.count() == 1 and await opener.is_visible() and (
         await content.count() == 0 or not await content.is_visible()

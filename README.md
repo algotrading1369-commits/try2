@@ -584,5 +584,11 @@ de OGame ES 13.1.0-r5. El adaptador admite el indicador `#attack_alert.noAttack`
 el aviso explícito de planeta sin naves y las colas vacías dentro de
 `#productionboxbuildingcomponent` y `#productionboxresearchcomponent`.
 Las regresiones usan fragmentos mínimos sin scripts ni datos de la cuenta.
-Esto no valida envíos, ataques entrantes reales ni funcionamiento prolongado.
+Esto no valida envíos, la reacción automática ante ataques ni funcionamiento prolongado.
+También se inspeccionó un ataque entrante real: el listado se abre con
+`#js_eventDetailsClosed`; sus filas `eventFleet` incluyen misión, sentido y
+hora de llegada. El icono `figure.planetIcon.planet` dentro de `destFleet`
+identifica el destino como planeta. El adaptador conserva como desconocidos
+los tipos ausentes o contradictorios. Esta inspección y sus regresiones no
+equivalen a una evacuación automática validada.
 Tras actualizar, ejecutar primero en simulación y comprobar los nuevos registros.
