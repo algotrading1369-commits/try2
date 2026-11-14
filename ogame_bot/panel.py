@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import hmac
 import json
+import os
+import socket
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,6 +17,17 @@ from .errors import CoreError
 from .panel_service import PanelError, PanelService
 
 ASSETS = Path(__file__).with_name("panel_assets")
+
+
+class LocalPanelServer(ThreadingHTTPServer):
+    # Windows SO_REUSEADDR allows two servers to bind the same endpoint, routing
+    # requests unpredictably to the old backend. Require exclusive ownership.
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def allowed_request(host: str, origin: str | None, port: int, *, supplied_token: str | None = None, token: str | None = None) -> bool:
@@ -105,21 +118,25 @@ def main() -> int:
         parser.error("El puerto debe estar entre 1024 y 65535.")
     try:
         service = PanelService(args.config)
-        url = f"http://127.0.0.1:{args.port}"
-        try:
-            server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(service))
-        except OSError:
+        server: ThreadingHTTPServer | None = None
+        for port in range(args.port, min(args.port + 10, 65536)):
+            url = f"http://127.0.0.1:{port}"
             try:
-                with urlopen(url + "/api/state", timeout=2) as response:
-                    existing = json.load(response)
-                if existing.get("application") == "ogame-local-panel" and existing.get("installation") == service.installation:
-                    if args.open:
-                        webbrowser.open(url)
-                    print("El panel ya está abierto: " + url)
-                    return 0
-            except (OSError, ValueError, URLError):
-                pass
-            print("Puerto ocupado. Usa --port con otro puerto local.")
+                server = LocalPanelServer(("127.0.0.1", port), handler_for(service))
+                break
+            except OSError:
+                try:
+                    with urlopen(url + "/api/state", timeout=2) as response:
+                        existing = json.load(response)
+                    if reusable_panel(existing, service):
+                        if args.open:
+                            webbrowser.open(url)
+                        print("El panel actualizado ya está abierto: " + url)
+                        return 0
+                except (OSError, ValueError, URLError):
+                    pass
+        if server is None:
+            print("No hay un puerto local libre. Usa --port con otro puerto.")
             return 1
         if args.open:
             webbrowser.open(url)
@@ -134,6 +151,12 @@ def main() -> int:
     except (CoreError, OSError):
         print("No se pudo abrir el panel: comprueba la configuración y las dependencias.")
         return 1
+
+
+def reusable_panel(existing: Any, service: PanelService) -> bool:
+    return (isinstance(existing, dict) and existing.get("application") == "ogame-local-panel"
+            and existing.get("installation") == service.installation
+            and existing.get("backend_build") == service.backend_build)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from enum import Enum
-from typing import AsyncIterator, Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable, TypeVar
 from urllib.parse import urlencode, urlsplit, parse_qs
 
 from playwright.async_api import BrowserContext, Error, Page
@@ -16,6 +16,7 @@ from ..errors import BrowserClosed, ConnectionLost, IdentityMismatch, LoginRequi
 from .timing import backoff, jitter
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 class SessionState(str, Enum):
@@ -78,8 +79,10 @@ class SessionManager:
         return None
 
     async def _navigate(self, page: Page, url: str) -> None:
+        self._check_open()
         await jitter(self.config.min_delay_seconds, self.config.max_delay_seconds)
-        response = await page.goto(url, wait_until="domcontentloaded")
+        self._check_open()
+        response = await self._interruptible_read(page.goto(url, wait_until="domcontentloaded"))
         if response is not None and response.status >= 400:
             raise ConnectionLost("El servidor devolvió un error HTTP.")
 
@@ -106,7 +109,7 @@ class SessionManager:
             except Error:
                 if self._closed:
                     raise BrowserClosed("Navegador cerrado durante el acceso.") from None
-            await asyncio.sleep(1)
+            await self._interruptible_wait(1)
         raise LoginRequired("Tiempo de acceso agotado; reinicia cuando puedas iniciar sesión.")
 
     async def connect(self) -> None:
@@ -128,7 +131,7 @@ class SessionManager:
             try:
                 await self._navigate(self.page, self.config.overview_url)
                 try:
-                    await self.page.locator("#playerName").wait_for(state="visible")
+                    await self._interruptible_read(self.page.locator("#playerName").wait_for(state="visible"))
                 except Error:
                     if self._closed:
                         raise BrowserClosed("Navegador cerrado.") from None
@@ -146,8 +149,32 @@ class SessionManager:
                     raise BrowserClosed("Navegador cerrado.") from None
                 logger.warning("Fallo de conexión, intento %s/%s.", attempt + 1, self.config.max_reconnect_attempts)
                 if attempt + 1 < self.config.max_reconnect_attempts:
-                    await asyncio.sleep(backoff(attempt, self.config.initial_backoff_seconds, self.config.max_backoff_seconds))
+                    await self._interruptible_wait(backoff(attempt, self.config.initial_backoff_seconds, self.config.max_backoff_seconds))
         raise ConnectionLost("Intentos de conexión agotados; sesión detenida.")
+
+    async def _interruptible_wait(self, seconds: float) -> None:
+        deadline = time.monotonic() + seconds
+        while (remaining := deadline - time.monotonic()) > 0:
+            self._check_open()
+            await asyncio.sleep(min(0.25, remaining))
+        self._check_open()
+
+    async def _interruptible_read(self, operation: Awaitable[T]) -> T:
+        """Interrupt read-only navigation; dispatch clicks never use this helper."""
+        task = asyncio.ensure_future(operation)
+        try:
+            while not task.done():
+                self._check_open()
+                await asyncio.wait({task}, timeout=0.25)
+            self._check_open()
+            return await task
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Error):
+                    pass
 
     async def check(self) -> None:
         """Comprueba la sesión contra el servidor, no solo contra un DOM antiguo."""

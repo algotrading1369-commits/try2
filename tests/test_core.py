@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from playwright.async_api import Error, Route
 
@@ -16,7 +16,7 @@ from ogame_bot.core.browser import BrowserManager
 from ogame_bot.core.locking import profile_lock
 from ogame_bot.core.session import SessionManager, SessionState
 from ogame_bot.core.timing import backoff
-from ogame_bot.errors import ConfigurationError, ConnectionLost, CoreError, IdentityMismatch, LoginRequired, ReadError
+from ogame_bot.errors import BrowserClosed, ConfigurationError, ConnectionLost, CoreError, IdentityMismatch, LoginRequired, ReadError
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -87,6 +87,25 @@ class SessionLogicTests(unittest.IsolatedAsyncioTestCase):
         await self.session.connect()
         self.assertEqual(self.session.state, SessionState.READY)
         self.page.goto.assert_awaited_once()
+
+    async def test_reconnect_wait_observes_panel_stop_without_waiting_for_backoff(self) -> None:
+        with patch.object(self.session, "_check_open", side_effect=[None, BrowserClosed("Stopped")]):
+            with self.assertRaises(BrowserClosed):
+                await self.session._interruptible_wait(120)
+
+    async def test_stop_interrupts_stalled_navigation_read_and_releases_task(self) -> None:
+        cancelled = asyncio.Event()
+
+        async def stalled_read() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        with patch.object(self.session, "_check_open", side_effect=[None, BrowserClosed("Stopped")]):
+            with self.assertRaises(BrowserClosed):
+                await self.session._interruptible_read(stalled_read())
+        self.assertTrue(cancelled.is_set())
 
     async def test_identity_mismatch_stops_without_navigation(self) -> None:
         self.locator.inner_text.return_value = "Otra cuenta"

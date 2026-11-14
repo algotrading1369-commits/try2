@@ -1,8 +1,10 @@
 # Panel local de pruebas
 
 Abre `Abrir_panel.bat` y deja su consola abierta. La interfaz está en
-`http://127.0.0.1:8765`. Recarga la página tras actualizar el código.
-Los cambios de Python requieren reiniciar también el servicio del panel.
+`http://127.0.0.1:8765` por defecto. Si un servicio anterior ocupa ese puerto,
+el lanzador busca otro puerto local y abre la dirección correcta. Solo reutiliza
+un servicio con la misma versión de código; un panel antiguo no impide abrir
+el nuevo. Recarga la página tras actualizar el código.
 
 ## Pestañas
 
@@ -52,6 +54,16 @@ La parada funciona también para un bot abierto mediante BAT o después de
 reiniciar el panel. Se comprueba PID y fecha de creación del proceso, y se envía
 una solicitud con token. El bot termina en un punto de control al finalizar la
 operación actual; no se mata ningún proceso del sistema.
+
+En Windows se dirige la solicitud al intérprete registrado, que puede tener
+un PID distinto al lanzador de Python. Las esperas de reconexión comprueban
+la parada periódicamente. Un pulso antiguo no bloquea el arranque si el
+bloqueo del perfil ya está libre. Registros incluye una consola de arranque
+para diagnosticar fallos previos al acceso al juego.
+
+El servidor reserva el puerto de forma exclusiva en Windows para evitar que
+dos versiones atiendan la misma dirección. Los errores al representar los
+informes se aíslan de las órdenes de arranque y parada.
 
 Una instancia antigua ya en ejecución necesita detenerse una vez con Ctrl+C
 y volver a abrirse con el código actualizado. El panel lo indicará si la detecta.

@@ -55,6 +55,18 @@ def register_control(directory: Path) -> str:
     os.environ["OGAME_PANEL_CONTROL_TOKEN"] = token
     save_snapshot(directory / "bot_control.json", {"pid": os.getpid(), "token": token,
                                                  "birth": process_identity(os.getpid())})
+    # A stop may have been requested before the Windows venv launcher handed
+    # over to this interpreter. The random launch capability binds that request.
+    stop_file = directory / "panel_stop.json"
+    try:
+        if stop_file.stat().st_size <= 2048:
+            pending = json.loads(stop_file.read_text(encoding="utf-8"))
+            if (isinstance(pending, dict) and pending.get("action") == "stop"
+                    and isinstance(pending.get("token"), str)
+                    and hmac.compare_digest(pending["token"], token)):
+                save_snapshot(stop_file, {"pid": os.getpid(), "token": token, "action": "stop"})
+    except (OSError, ValueError, UnicodeError):
+        pass
     return token
 
 

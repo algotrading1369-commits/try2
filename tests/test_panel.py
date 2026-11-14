@@ -14,7 +14,7 @@ from ogame_bot.core.panel_control import stop_requested, registered_control, reg
 from ogame_bot.core.action_executor import uses_real_resources
 from ogame_bot.brain.planner import Upgrade
 from ogame_bot.brain.catalog import BUILD, RESEARCH, SHIP_BUILD
-from ogame_bot.panel import allowed_request
+from ogame_bot.panel import allowed_request, reusable_panel, LocalPanelServer, handler_for
 from ogame_bot.panel_service import PanelError, PanelService
 
 
@@ -44,6 +44,20 @@ class PanelServiceTests(unittest.TestCase):
         self.assertFalse(state["process"]["owned_running"])
         self.assertIsNone(state["snapshot"])
         self.assertNotIn("cookies", state)
+
+    def test_old_panel_build_is_not_reused_for_updated_controls(self) -> None:
+        existing = {"application": "ogame-local-panel", "installation": self.service.installation}
+        self.assertFalse(reusable_panel(existing, self.service))
+        existing["backend_build"] = "old-build"
+        self.assertFalse(reusable_panel(existing, self.service))
+        existing["backend_build"] = self.service.backend_build
+        self.assertTrue(reusable_panel(existing, self.service))
+
+    def test_windows_listener_cannot_share_a_port_with_another_panel(self) -> None:
+        with LocalPanelServer(("127.0.0.1", 0), handler_for(self.service)) as first:
+            with self.assertRaises(OSError):
+                with LocalPanelServer(("127.0.0.1", first.server_port), handler_for(self.service)):
+                    self.fail("A second backend shared the listener port")
 
     def test_valid_edit_is_saved_with_backup(self) -> None:
         original = self.path.read_bytes()
@@ -173,6 +187,45 @@ class PanelServiceTests(unittest.TestCase):
             self.assertIsNone(registered_control(path))
             with self.assertRaises(PanelError):
                 self.service.stop()
+
+    def test_stop_uses_registered_worker_pid_instead_of_windows_launcher(self) -> None:
+        self.service.process = MagicMock(pid=55)
+        self.service.process.poll.return_value = None
+        self.service.control_token = "launcher-token"
+        worker = {"pid": 77, "token": "worker-token", "birth": "123"}
+        with patch("ogame_bot.panel_service.registered_control", return_value=worker):
+            self.assertEqual(self.service.process_status()["pid"], 77)
+            self.service.stop()
+            self.assertTrue(self.service.process_status()["stop_requested"])
+        path = self.service.config.scheduler.status_file.with_name("panel_stop.json")
+        self.assertTrue(stop_requested(path, "worker-token", 77))
+        self.assertFalse(stop_requested(path, "launcher-token", 55))
+
+    def test_early_stop_is_handed_from_launcher_to_registered_interpreter(self) -> None:
+        import os
+        directory = self.service.config.scheduler.status_file.parent
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "panel_stop.json"
+        token = "one-launch-capability-token"
+        path.write_text(json.dumps({"action": "stop", "pid": 123, "token": token}), encoding="utf-8")
+        with patch.dict("os.environ", {"OGAME_PANEL_CONTROL_TOKEN": token}):
+            register_control(directory)
+            try:
+                self.assertTrue(stop_requested(path, token, os.getpid()))
+            finally:
+                unregister_control(directory, token)
+
+    def test_fresh_old_heartbeat_without_profile_lock_does_not_block_start(self) -> None:
+        with patch.object(self.service, "scheduler_status", return_value={"state": "running", "heartbeat_is_recent": True}):
+            self.assertFalse(self.service.process_status()["external_running"])
+
+    def test_locked_legacy_profile_is_detected_even_without_heartbeat(self) -> None:
+        from ogame_bot.core.locking import profile_lock
+        with profile_lock(self.service.config.profile_dir):
+            self.assertTrue(self.service.process_status()["external_running"])
+            self.assertFalse(self.service.process_status()["can_stop"])
+            with self.assertRaises(PanelError):
+                self.service.start()
 
     def test_scanner_mode_is_explicit_and_unknown_modes_are_rejected(self) -> None:
         with patch("ogame_bot.panel_service.subprocess.Popen") as launch:

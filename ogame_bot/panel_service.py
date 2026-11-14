@@ -23,6 +23,8 @@ from .readiness import diagnose, load_state
 from .scheduler.loop import read_status
 from .storage.snapshots import save_snapshot
 from .core.panel_control import registered_control, stop_requested as control_stop_requested
+from .core.locking import profile_lock
+from .errors import CoreError
 
 EDITABLE = {
     "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds"},
@@ -51,6 +53,11 @@ class PanelService:
         self.lock = threading.RLock()
         self.csrf = secrets.token_urlsafe(32)
         self.installation = hashlib.sha256(str(self.path).encode()).hexdigest()[:16]
+        project = Path(__file__).parent
+        digest = hashlib.sha256()
+        for relative in ("panel.py", "panel_service.py", "core/panel_control.py", "core/session.py", "core/browser.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
+            digest.update((project / relative).read_bytes())
+        self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
         self.control_token: str | None = None
         self.stop_requested = False
@@ -68,17 +75,25 @@ class PanelService:
     def process_status(self) -> dict[str, Any]:
         code = self.process.poll() if self.process is not None else None
         owned = self.process is not None and code is None
-        status = self.scheduler_status()
         control = registered_control(self.config.scheduler.status_file.with_name("bot_control.json"))
         controllable = owned or control is not None
-        target_pid = self.process.pid if owned else control["pid"] if control else None
-        target_token = self.control_token if owned else control["token"] if control else None
+        legacy_active = False
+        if not controllable and self.config.profile_dir.with_name(self.config.profile_dir.name + ".lock").exists():
+            try:
+                with profile_lock(self.config.profile_dir):
+                    pass
+            except (CoreError, OSError):
+                legacy_active = True
+        # On Windows the venv executable can be a launcher with a different PID
+        # from the Python interpreter that actually runs the bot.
+        target_pid = control["pid"] if control else self.process.pid if owned else None
+        target_token = control["token"] if control else self.control_token if owned else None
         requested = (control_stop_requested(self.config.scheduler.status_file.with_name("panel_stop.json"), target_token, target_pid)
                      if controllable and target_token else False)
-        return {"owned_running": owned, "pid": self.process.pid if owned else None,
+        return {"owned_running": owned, "pid": target_pid,
                 "exit_code": code, "stop_requested": requested,
                 "can_stop": controllable, "registered_running": control is not None,
-                "external_running": not owned and (control is not None or (status.get("state") == "running" and status.get("heartbeat_is_recent", False)))}
+                "external_running": not owned and (control is not None or legacy_active)}
 
     def scheduler_status(self) -> dict[str, Any]:
         from .errors import CoreError
@@ -124,7 +139,14 @@ class PanelService:
                     logs = handle.read().decode("utf-8", errors="replace").splitlines()[-100:]
             except OSError:
                 logs = []
-            return {"application": "ogame-local-panel", "installation": self.installation, "csrf": self.csrf,
+            try:
+                console_path = self.config.scheduler.status_file.with_name("panel_bot_console.log")
+                with console_path.open("rb") as handle:
+                    handle.seek(max(0, handle.seek(0, 2) - 12000))
+                    console_logs = handle.read().decode("utf-8", errors="replace").splitlines()[-30:]
+            except OSError:
+                console_logs = []
+            return {"application": "ogame-local-panel", "installation": self.installation, "backend_build": self.backend_build, "control_protocol": 3, "csrf": self.csrf,
                     "account": {"player": self.config.expected_player_name, "universe": self.config.server_number, "community": self.config.community},
                     "settings": self.settings(), "process": self.process_status(),
                     "catalog": {"building": [{"item": key, "name": value.name_es} for key, value in BUILD.items()],
@@ -132,7 +154,7 @@ class PanelService:
                     "scheduler": self.scheduler_status(), "snapshot": snapshot,
                     "defender": load_state(self.config.defender.report_file), "plan": load_state(self.config.brain.plan_file),
                     "fleet_plan": load_state(self.config.fleet.plan_file),
-                    "diagnostics": diagnose(self.config, snapshot), "orders": self.orders(), "logs": logs}
+                    "diagnostics": diagnose(self.config, snapshot), "orders": self.orders(), "logs": logs, "console_logs": console_logs}
 
     def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
@@ -206,10 +228,10 @@ class PanelService:
     def stop(self) -> dict[str, str]:
         with self.lock:
             control = registered_control(self.config.scheduler.status_file.with_name("bot_control.json"))
-            if self.process is not None and self.process.poll() is None and self.control_token:
-                pid, token = self.process.pid, self.control_token
-            elif control is not None:
+            if control is not None:
                 pid, token = control["pid"], control["token"]
+            elif self.process is not None and self.process.poll() is None and self.control_token:
+                pid, token = self.process.pid, self.control_token
             else:
                 raise PanelError("No hay un bot con control de parada registrado. Si sigue abierta una versión anterior, detenla una vez con Ctrl+C y arráncala de nuevo.", 409)
             save_snapshot(self.config.scheduler.status_file.with_name("panel_stop.json"),
