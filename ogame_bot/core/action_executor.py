@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
 
 from ..brain.catalog import MINES, energy_delta
 from ..brain.planner import Upgrade, afford, probe_bootstrap_action
@@ -11,6 +12,8 @@ from ..scanner.dom import Document
 from ..scanner import parsing
 from ..storage.orders import OrderJournal
 from .session import SessionManager
+
+logger = logging.getLogger(__name__)
 
 
 def verify_identity(document: Document, upgrade: Upgrade, config: Config) -> None:
@@ -73,6 +76,7 @@ class ActionExecutor:
                 level = current_level(document, upgrade)
                 if level is not None and level >= upgrade.target_level:
                     self.journal.mark(identifier, "confirmed")
+                    logger.info("Orden confirmada: %s, objetivo %s, planeta %s.", upgrade.technology.name_es, upgrade.target_level, upgrade.body_id)
                     return {"state": "confirmed", "order_id": identifier}
         except (ReadError, ConnectionLost):
             return {"state": "pending", "order_id": identifier, "reason": "reconciliation_unavailable"}

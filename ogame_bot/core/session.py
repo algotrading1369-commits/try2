@@ -44,6 +44,9 @@ class SessionManager:
         self.state = SessionState.STOPPED
 
     def _check_open(self) -> None:
+        from .panel_control import panel_stop_requested
+        if panel_stop_requested(self.config.scheduler.status_file.with_name("panel_stop.json")):
+            raise BrowserClosed("Bot detenido desde el panel local.")
         if self._closed or not self.context.pages:
             raise BrowserClosed("Navegador cerrado; sesión detenida.")
 

@@ -20,6 +20,7 @@ class Brain:
         self.executor = executor
         self.journal = journal
         self.planner = Planner(config.brain, config.scanner_max_reading_age_seconds)
+        self._probe_completion_announced = False
 
     def select(self, actions: list[Upgrade]) -> Upgrade | None:
         if not actions:
@@ -32,6 +33,9 @@ class Brain:
 
     async def process(self, snapshot: AccountSnapshot) -> dict[str, Any]:
         if self.config.brain.probe_target and self.journal.probe_completed(self.config.brain.probe_body_id):
+            if not self._probe_completion_announced:
+                logger.info("SONDA COMPLETADA Y CONFIRMADA: preparación finalizada; no se fabricarán más unidades.")
+                self._probe_completion_announced = True
             report = {"schema_version": 1, "created_at": utc_now(), "dry_run": self.config.brain.dry_run,
                       "actions": [], "notes": [{"reason": "probe_bootstrap_already_completed"}],
                       "selected": None, "result": {"state": "completed"}}
