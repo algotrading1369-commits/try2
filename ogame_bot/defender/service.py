@@ -17,10 +17,18 @@ from ..observability.telegram import AlertDispatcher
 from ..scanner import parsing
 from ..storage.orders import OrderJournal
 from ..storage.snapshots import save_snapshot
-from .planner import EscapePlanner
+from .planner import EscapePlanner, destination_options
 from .threats import analyze
 
 logger = logging.getLogger(__name__)
+
+DESTINATION_MESSAGES = {
+    "no_other_own_body": "La cuenta no tiene otro planeta o luna propios para desplegar o transportar.",
+    "destinations_not_configured": "Configura al menos un destino propio en defender.destinations.",
+    "own_destinations_expired": "No se ha podido verificar la lista actual de planetas y lunas propios.",
+    "destination_threats_unknown_or_expired": "No se han podido verificar las amenazas de los destinos.",
+    "no_verified_own_destination_outside_known_threats": "Los destinos configurados no son propios, coinciden con el origen o tienen amenazas conocidas.",
+}
 
 
 class Defender:
@@ -53,6 +61,18 @@ class Defender:
                 self.alerts.enqueue("defense:unresolved", "ATAQUE: hay indicador de amenaza, pero faltan los datos para evacuar automáticamente.")
             for threat in threats:
                 self.alerts.enqueue(f"incoming:{threat.id}:{threat.impact_at}", f"ATAQUE: cuerpo {threat.body_id or 'sin identificar'}, llegada UTC {threat.impact_at or 'desconocida'}. Estado: {threat.reason}.")
+            checks: list[dict[str, Any]] = []
+            for threat in threats:
+                if threat.body_id is None:
+                    continue
+                candidates, reason = destination_options(snapshot, threat.body_id, settings)
+                checks.append({"threat_id": threat.id, "origin_id": threat.body_id,
+                               "destination_ids": [body.id for body in candidates], "reason": reason})
+                if reason is not None:
+                    self.alerts.enqueue(f"escape-destination:{threat.body_id}:{reason}",
+                                        "DEFENSA SIN DESTINO VERIFICADO: " + DESTINATION_MESSAGES[reason])
+            report["destination_checks"] = checks
+            report["trigger_seconds"] = settings.trigger_seconds
             pending = self.journal.pending("fleet")
             if pending is not None:
                 report["result"] = await self.executor.reconcile()
@@ -64,8 +84,18 @@ class Defender:
                 return report
             eligible = sorted((threat for threat in threats if threat.eligible), key=lambda threat: threat.seconds_to_impact or 0)
             if not eligible:
+                blockers = [check["reason"] for check in checks if check["reason"] is not None]
+                if blockers:
+                    report["result"] = {"state": "blocked", "reason": blockers[0]}
+                elif threats:
+                    reason = threats[0].reason
+                    report["result"] = {"state": "waiting_window" if reason == "outside_evacuation_window" else "blocked", "reason": reason}
                 return report
             threat = eligible[0]
+            destination_check = next((check for check in checks if check["threat_id"] == threat.id), None)
+            if destination_check is not None and destination_check["reason"] is not None:
+                report["result"] = {"state": "blocked", "reason": destination_check["reason"]}
+                return report
             body = next((body for body in snapshot.registry.data or [] if body.id == threat.body_id), None)
             if body is None:
                 return report

@@ -319,6 +319,22 @@ class DefenderServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.session.before_navigation)
         self.assertEqual(json.loads(cfg.scheduler.status_file.read_text())["state"], "failed")
 
+    async def test_missing_destinations_are_reported_before_evacuation_window(self):
+        self.flight = replace(self.flight, impact_at=(datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat())
+        self.defender.config = replace(self.config, defender=replace(self.config.defender, destinations=()))
+        report = await self.defender.process()
+        self.assertEqual(report["threats"][0]["reason"], "outside_evacuation_window")
+        self.assertEqual(report["result"], {"state": "blocked", "reason": "destinations_not_configured"})
+        self.defender.executor.execute.assert_not_awaited()
+        self.assertEqual(self.defender.reader.capture.await_count, 1)
+
+    async def test_valid_destinations_outside_window_are_waiting_not_no_action(self):
+        self.flight = replace(self.flight, impact_at=(datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat())
+        report = await self.defender.process()
+        self.assertEqual(report["result"], {"state": "waiting_window", "reason": "outside_evacuation_window"})
+        self.assertEqual(report["destination_checks"][0]["destination_ids"], [102])
+        self.defender.executor.execute.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

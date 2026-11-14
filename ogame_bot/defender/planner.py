@@ -3,10 +3,34 @@ from __future__ import annotations
 
 import math
 
-from ..domain.models import AccountSnapshot
+from ..domain.models import AccountSnapshot, CelestialBody
 from ..fleet.models import Flight, SHIP_IDS
 from .settings import DefenderSettings
 from .threats import Threat, resolve_target
+
+
+def destination_options(snapshot: AccountSnapshot, origin_id: int, settings: DefenderSettings) -> tuple[list[CelestialBody], str | None]:
+    """Verifica destinos propios sin inventarlos ni seleccionar el origen."""
+    if not snapshot.registry.is_fresh(settings.max_state_age_seconds):
+        return [], "own_destinations_expired"
+    bodies = snapshot.registry.data or []
+    if not any(body.id != origin_id for body in bodies):
+        return [], "no_other_own_body"
+    if not settings.destinations:
+        return [], "destinations_not_configured"
+    if not snapshot.movements.is_fresh(settings.max_state_age_seconds):
+        return [], "destination_threats_unknown_or_expired"
+    threatened: set[int] = set()
+    for event in (snapshot.movements.data or {}).get("events", []):
+        if event.get("possible_incoming_attack"):
+            target = resolve_target(event, bodies)
+            if target is not None:
+                threatened.add(target.id)
+            elif event.get("destination"):
+                threatened.update(body.id for body in bodies if body.coordinates == event["destination"])
+    candidates = [body for identifier in settings.destinations for body in bodies
+                  if body.id == identifier and body.id != origin_id and body.id not in threatened]
+    return candidates, None if candidates else "no_verified_own_destination_outside_known_threats"
 
 
 class EscapePlanner:
@@ -18,6 +42,10 @@ class EscapePlanner:
         settings = self.settings
         self.reason = "threat_not_eligible"
         if not settings.enabled or not threat.eligible or threat.body_id is None:
+            return None
+        destinations, reason = destination_options(snapshot, threat.body_id, settings)
+        if reason is not None:
+            self.reason = reason
             return None
         body = next((body for body in snapshot.bodies if body.body.id == threat.body_id), None)
         if body is None or not body.ships.is_fresh(settings.max_state_age_seconds) or body.ships.status != "complete" or not body.resources.is_fresh(settings.max_state_age_seconds):
@@ -54,22 +82,7 @@ class EscapePlanner:
         for key in sorted(resources, key=lambda key: self.weights[key], reverse=True):
             load[key] = min(capacity, resources[key])
             capacity -= load[key]
-        if not snapshot.registry.is_fresh(settings.max_state_age_seconds):
-            self.reason = "own_destinations_expired"
-            return None
-        threatened = set()
-        for event in (snapshot.movements.data or {}).get("events", []):
-            if event.get("possible_incoming_attack"):
-                target = resolve_target(event, snapshot.registry.data or [])
-                if target is not None:
-                    threatened.add(target.id)
-                elif event.get("destination"):
-                    # Un blanco ambiguo descarta planeta y luna de esa coordenada.
-                    threatened.update(body.id for body in snapshot.registry.data or [] if body.coordinates == event["destination"])
-        for identifier in settings.destinations:
-            destination = next((candidate for candidate in snapshot.registry.data or [] if candidate.id == identifier), None)
-            if destination is None or identifier == body.body.id or identifier in threatened:
-                continue
+        for destination in destinations:
             flight = Flight("fleet", settings.mission, body.body.id, body.body.coordinates, destination.coordinates,
                 3 if destination.kind == "moon" else 1, destination.id, ships, load, settings.speed_percent, 1, "defensive_evacuation",
                 purpose="defender", threat_id=threat.id, impact_at=threat.impact_at,

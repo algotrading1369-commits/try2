@@ -216,6 +216,18 @@ class ScannerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot.bodies[1].resources.status, "unavailable")
         self.assertIn("body_scan_limit_reached", snapshot.issues)
 
+    async def test_scan_persists_fleet_slots_without_fleet_manager(self) -> None:
+        capture = self.reader.capture.side_effect
+        async def with_slots(component: str, body_id: int | None = None, **kwargs: object) -> Document:
+            document = await capture(component, body_id, **kwargs)
+            if component == "fleetdispatch":
+                document.feed('<div id="slots">Flotas:1/3 Expediciones:0/1</div>')
+            return document
+        self.reader.capture.side_effect = with_slots
+        snapshot = await Scanner(self.reader, self.config).scan()
+        self.assertEqual(snapshot.fleet_slots.status, "complete")
+        self.assertEqual(snapshot.fleet_slots.data["fleet_used"], 1)
+
     async def test_missing_overview_replaces_previous_state_with_unknown(self) -> None:
         save_snapshot(self.config.scanner_output_file, {"old": "clear"})
         self.reader.capture.side_effect = ReadError("synthetic error")

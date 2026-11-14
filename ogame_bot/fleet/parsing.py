@@ -33,8 +33,16 @@ def slots(document: Document) -> Reading[dict[str, int]]:
     data: dict[str, int] = {}
     issues: list[str] = []
     for name, css in (("fleet", "fleetSlots"), ("expedition", "expeditionSlots")):
-        node = one(document.root.find(lambda child: child.has_class(css)))
-        matches = re.findall(r"(?<![0-9])([0-9]+)\s*/\s*([0-9]+)(?![0-9])", node.text if node else "")
+        nodes = document.root.find(lambda child: child.has_class(css))
+        node = one(nodes)
+        if nodes:
+            matches = re.findall(r"(?<![0-9])([0-9]+)\s*/\s*([0-9]+)(?![0-9])", node.text if node else "")
+        else:
+            # ES 13.1.0-r5 repite id=slots en el panel de retirada táctica.
+            # Cada contador se identifica por su etiqueta, nunca por posición.
+            label = "Flotas" if name == "fleet" else "Expediciones"
+            pattern = rf"\b{label}:\s*([0-9]+)\s*/\s*([0-9]+)(?![0-9])"
+            matches = [match for panel in document.by_id("slots") for match in re.findall(pattern, panel.text)]
         if len(matches) != 1 or int(matches[0][0]) > int(matches[0][1]):
             issues.append(name + "_slots_unknown")
         else:

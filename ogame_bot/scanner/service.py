@@ -8,6 +8,7 @@ from ..adapters.ogame.reader import OGameReader
 from ..config import Config
 from ..domain.models import AccountSnapshot, BodySnapshot, Reading, utc_now
 from ..errors import ConnectionLost, ReadError
+from ..fleet.parsing import slots
 from ..storage.snapshots import save_snapshot
 from . import parsing
 from .dom import Document
@@ -27,7 +28,7 @@ class Scanner:
             logger.warning("Lectura incompleta del componente %s.", component)
             return None
 
-    async def _read_body(self, snapshot: BodySnapshot) -> None:
+    async def _read_body(self, snapshot: BodySnapshot) -> Reading[dict[str, int]]:
         body_id = snapshot.body.id
         overview = await self._document("overview", body_id)
         snapshot.resources = parsing.resources(overview) if overview else Reading.unavailable("overview_read_failed")
@@ -42,6 +43,7 @@ class Scanner:
         snapshot.facilities = parsing.technologies(facilities, catalog) if facilities else Reading.unavailable("facilities_read_failed")
         fleet = await self._document("fleetdispatch", body_id)
         snapshot.ships = parsing.technologies(fleet, parsing.SHIPS, fleet=True) if fleet else Reading.unavailable("fleet_read_failed")
+        return slots(fleet) if fleet else Reading.unavailable("fleet_slots_read_failed")
 
     async def scan(self) -> AccountSnapshot:
         snapshot = AccountSnapshot(self.config.expected_player_name, self.config.server_origin, utc_now(), max_reading_age_seconds=self.config.scanner_max_reading_age_seconds)
@@ -60,8 +62,10 @@ class Scanner:
             selected = snapshot.bodies[:self.config.scanner_max_bodies]
             if len(selected) < len(snapshot.bodies):
                 snapshot.issues.append("body_scan_limit_reached")
-            for body in selected:
-                await self._read_body(body)
+            for index, body in enumerate(selected):
+                body_slots = await self._read_body(body)
+                if index == 0:
+                    snapshot.fleet_slots = body_slots
             planet = next((body for body in selected if body.body.kind == "planet"), None)
             if planet is not None:
                 research = await self._document("research", planet.body.id)
