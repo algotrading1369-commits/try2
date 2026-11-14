@@ -35,6 +35,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[1] / "config.yaml")
     parser.add_argument("--check-config", action="store_true")
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--diagnose", action="store_true", help="Diagnóstico local de configuración y lecturas; no abre navegador ni envía órdenes.")
     mode.add_argument("--scan-once", action="store_true", help="Lee una instantánea y cierra el navegador.")
     mode.add_argument("--session-only", action="store_true", help="Ejecuta solo el módulo de sesión.")
     mode.add_argument("--brain-once", action="store_true", help="Escanea y evalúa construcción/investigación una vez; respeta dry_run.")
@@ -52,6 +53,10 @@ def main() -> int:
         if args.scheduler_status:
             from .scheduler.loop import read_status
             print(json.dumps(read_status(config.scheduler), ensure_ascii=False, indent=2))
+            return 0
+        if args.diagnose:
+            from .readiness import diagnose, format_report, load_state
+            print(format_report(diagnose(config, load_state(config.scanner_output_file))))
             return 0
         setup_logging(config)
         from .app import run

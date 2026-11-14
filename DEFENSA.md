@@ -52,3 +52,15 @@ Antes de permitir envíos también hacen falta inventario completo, capacidades
 efectivas por nave, un presupuesto de combustible compatible con los recursos,
 un slot libre y la validación del trayecto. Un destino configurado no elimina
 esos requisitos ni equivale a una evacuación probada.
+
+## Diagnóstico sin navegador
+
+`Diagnostico_bot.bat` o `python -m ogame_bot --diagnose` muestra los bloqueos
+de configuración, módulos desactivados y las últimas lecturas vigentes. No
+abre el navegador, no se conecta a Gameforge y no envía órdenes. Tampoco
+modifica la configuración ni el estado guardado.
+
+Una instantánea antigua no demuestra que falte una nave: se solicita una
+lectura nueva. Las instantáneas de otra identidad o servidor se descartan.
+El diagnóstico siempre señala que el envío real y el funcionamiento
+prolongado siguen pendientes; una prueba de lógica no los certifica.
