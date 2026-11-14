@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def uses_real_resources(upgrade: Upgrade, settings: BrainSettings) -> bool:
+    if upgrade.production_key is not None:
+        return settings.shipyard_live
     return (not settings.dry_run
             or (settings.probe_bootstrap_live and probe_bootstrap_action(upgrade, settings))
             or (settings.economic_live and not settings.probe_target and upgrade.kind in {"building", "research"}))
@@ -55,7 +57,7 @@ def preflight(document: Document, upgrade: Upgrade, config: Config) -> str | Non
     values = resources.data or {}
     if not all(type(values.get(resource)) is int for resource in ("metal", "crystal", "deuterium", "energy")):
         return "resources_unknown"
-    if not afford(values, upgrade.technology.cost(upgrade.target_level), config.brain.reserve):
+    if not afford(values, upgrade.cost, config.brain.reserve):
         return "resources_or_reserve_insufficient"
     if upgrade.kind == "building" and upgrade.item != "solar_plant":
         consumption = energy_delta(upgrade.item, upgrade.current_level) if upgrade.item in MINES else 0
@@ -83,7 +85,8 @@ class ActionExecutor:
                 document = Document(await page.content())
                 verify_identity(document, upgrade, self.config)
                 level = current_level(document, upgrade)
-                if level is not None and level >= upgrade.target_level:
+                production_finished = upgrade.kind != "shipyard" or (parsing.queue_state(document, shipyard=True).data or {}).get("state") == "free"
+                if level is not None and level >= upgrade.target_level and production_finished:
                     self.journal.mark(identifier, "confirmed")
                     logger.info("Orden confirmada: %s, objetivo %s, planeta %s.", upgrade.technology.name_es, upgrade.target_level, upgrade.body_id)
                     return {"state": "confirmed", "order_id": identifier}
@@ -100,11 +103,15 @@ class ActionExecutor:
             return await self.reconcile(pending)
         configured = self.config.brain
         completed = bool(configured.probe_body_id and self.journal.probe_completed(configured.probe_body_id))
-        if upgrade.kind == "shipyard" and completed:
+        if upgrade.kind == "shipyard" and upgrade.production_key is None and completed:
             return {"state": "completed", "reason": "probe_bootstrap_already_completed"}
         settings = effective_brain_settings(configured, probe_completed=completed)
         bootstrap = probe_bootstrap_action(upgrade, settings)
-        if settings.probe_target:
+        if upgrade.production_key is not None:
+            goal = next((goal for goal in settings.shipyard_queue if goal.id == upgrade.production_key), None)
+            produced = self.journal.produced(upgrade.production_key, upgrade.body_id, upgrade.item)
+            allowed = bool(not settings.probe_target and settings.shipyard_enabled and goal and goal.body_id == upgrade.body_id and goal.item == upgrade.item and produced + upgrade.quantity <= goal.quantity and upgrade.quantity <= settings.shipyard_max_batch)
+        elif settings.probe_target:
             allowed = bootstrap and (upgrade.kind == "shipyard" or (settings.builder_enabled if upgrade.kind == "building" else settings.research_enabled))
             if self.journal.probe_completed(settings.probe_body_id):
                 return {"state": "completed", "reason": "probe_bootstrap_already_completed"}
@@ -142,10 +149,10 @@ class ActionExecutor:
                 await amount.wait_for(state="visible")
                 if await amount.count() != 1:
                     return {"state": "blocked", "reason": "ship_quantity_control_ambiguous"}
-                await amount.fill("1")
-                if await amount.input_value() != "1":
+                await amount.fill(str(upgrade.quantity))
+                if await amount.input_value() != str(upgrade.quantity):
                     return {"state": "blocked", "reason": "ship_quantity_not_verified"}
-                button = page.locator('#technologydetails button.upgrade[data-technology="210"]')
+                button = page.locator(f'#technologydetails button.upgrade[data-technology="{technology.id}"]')
                 reason = preflight(Document(await page.content()), upgrade, self.config)
                 if reason is not None:
                     return {"state": "blocked", "reason": reason}

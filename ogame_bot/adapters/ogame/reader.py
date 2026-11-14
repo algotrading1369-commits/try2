@@ -41,7 +41,7 @@ class OGameReader:
             if component == "fleetdispatch":
                 # Un planeta sin naves no tiene tarjetas technology.
                 await page.locator('.technology[data-technology], #warning p').first.wait_for(state="attached")
-            elif component in {"supplies", "facilities", "research"}:
+            elif component in {"supplies", "facilities", "research", "shipyard"}:
                 # Espera contenido de la sección, no solo el DOM base autenticado.
                 await page.locator(".technology[data-technology]").first.wait_for(state="attached")
             if expand_events:

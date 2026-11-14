@@ -21,6 +21,7 @@ class Scanner:
     def __init__(self, reader: OGameReader, config: Config) -> None:
         self.reader = reader
         self.config = config
+        self.shipyard_required = config.brain.shipyard_enabled
 
     async def _document(self, component: str, body_id: int | None = None, *, expand_events: bool = False) -> Document | None:
         try:
@@ -45,6 +46,9 @@ class Scanner:
         snapshot.facilities = parsing.technologies(facilities, catalog) if facilities else Reading.unavailable("facilities_read_failed")
         fleet = await self._document("fleetdispatch", body_id)
         snapshot.ships = parsing.technologies(fleet, parsing.SHIPS, fleet=True) if fleet else Reading.unavailable("fleet_read_failed")
+        if self.shipyard_required and snapshot.body.kind == "planet":
+            hangar = await self._document("shipyard", body_id)
+            snapshot.shipyard_queue = parsing.queue_state(hangar, shipyard=True) if hangar else Reading.unavailable("shipyard_read_failed")
         return slots(fleet) if fleet else Reading.unavailable("fleet_slots_read_failed")
 
     async def scan(self) -> AccountSnapshot:
@@ -105,6 +109,13 @@ class Scanner:
             body.buildings = parsing.technologies(supplies, parsing.BUILDINGS) if supplies else Reading.unavailable("supplies_read_failed")
             body.construction_queue = parsing.queue_state(supplies) if supplies else Reading.unavailable("queue_read_failed")
             final_document = supplies
+            if self.shipyard_required:
+                hangar = await self._document("shipyard", body.body.id)
+                body.ships = parsing.technologies(hangar, parsing.SHIPS, fleet=True) if hangar else Reading.unavailable("shipyard_read_failed")
+                body.shipyard_queue = parsing.queue_state(hangar, shipyard=True) if hangar else Reading.unavailable("shipyard_read_failed")
+                if hangar:
+                    body.resources = parsing.resources(hangar)
+                    final_document = hangar
             if facilities_needed:
                 facilities = await self._document("facilities", body.body.id)
                 body.facilities = parsing.technologies(facilities, parsing.FACILITIES) if facilities else Reading.unavailable("facilities_read_failed")

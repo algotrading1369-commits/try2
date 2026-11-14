@@ -60,10 +60,19 @@ def load_fleet_settings(raw: Any, base: Path) -> FleetSettings:
         "recycling": {"enabled", "origins", "radius_systems", "minimum_debris", "max_systems_per_cycle"},
     }
     for name, expected in subkeys.items():
-        if not isinstance(raw[name], dict) or set(raw[name]) != expected:
+        optional = {"live", "composition_mode", "manual_ships"} if name == "expeditions" else set()
+        if not isinstance(raw[name], dict) or not expected <= set(raw[name]) or set(raw[name]) - expected - optional:
             raise ConfigurationError(f"Campos incorrectos en fleet.{name}.")
         boolean(raw[name]["enabled"], name + ".enabled")
     expo, transport, recycling = (dict(raw[name]) for name in ("expeditions", "transports", "recycling"))
+    expo.setdefault("live", False)
+    expo.setdefault("composition_mode", "automatic")
+    expo.setdefault("manual_ships", {})
+    boolean(expo["live"], "expeditions.live")
+    if expo["composition_mode"] not in {"automatic", "manual"} or not isinstance(expo["manual_ships"], dict) or any(ship not in SHIP_IDS or type(amount) is not int or not 1 <= amount <= 1000000000 for ship, amount in expo["manual_ships"].items()):
+        raise ConfigurationError("Composición de expedición inválida.")
+    if expo["enabled"] and expo["composition_mode"] == "manual" and not expo["manual_ships"]:
+        raise ConfigurationError("La expedición manual necesita al menos una nave.")
     ids(expo["origins"], "expeditions.origins")
     ids(transport["sources"], "transports.sources")
     ids(recycling["origins"], "recycling.origins")

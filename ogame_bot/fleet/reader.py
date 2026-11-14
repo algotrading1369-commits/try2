@@ -9,6 +9,7 @@ from ..adapters.ogame.reader import OGameReader
 from ..config import Config
 from ..core.session import SessionManager
 from ..domain.models import AccountSnapshot, Reading, utc_now
+from ..scanner import parsing as state
 from ..errors import ReadError, ConnectionLost
 from ..scanner.dom import Document
 from . import parsing
@@ -36,15 +37,24 @@ class FleetReader:
         reader = OGameReader(self.session)
         origin = snapshot.bodies[0].body.id if snapshot.bodies else None
         try:
-            fleet = await reader.capture("fleetdispatch", origin)
-            snapshot.fleet_slots = parsing.slots(fleet)
+            origins = set(self.config.fleet.expeditions["origins"] if self.config.fleet.expeditions["enabled"] else [])
+            origins.update(self.config.fleet.transports["sources"] if self.config.fleet.transports["enabled"] else [])
+            origins.update(self.config.fleet.recycling["origins"] if self.config.fleet.recycling["enabled"] else [])
+            for body in snapshot.bodies:
+                if body.body.id not in origins and (origins or body.body.id != origin):
+                    continue
+                fleet = await reader.capture("fleetdispatch", body.body.id, expand_events=True)
+                body.ships = state.technologies(fleet, state.SHIPS, fleet=True)
+                body.resources = state.resources(fleet)
+                snapshot.fleet_slots = parsing.slots(fleet)
+                snapshot.movements = state.movements(fleet)
             snapshot.outgoing = parsing.outgoing(await reader.capture("movement"))
         except (ReadError, ConnectionLost):
             snapshot.fleet_slots = Reading.unavailable("fleet_state_read_failed")
             snapshot.outgoing = Reading.unavailable("fleet_state_read_failed")
         expo = self.config.fleet.expeditions
         snapshot.top1_max_reading_age_seconds = expo["top1_max_age_seconds"]
-        if expo["enabled"] and expo["top1_source"] == "public_api":
+        if expo["enabled"] and expo.get("composition_mode", "automatic") != "manual" and expo["top1_source"] == "public_api":
             if time.monotonic() >= self._next_ranking_fetch:
                 self._next_ranking_fetch = time.monotonic() + 3600
                 try:

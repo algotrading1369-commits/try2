@@ -42,7 +42,12 @@ def diagnose(config: Config, snapshot: dict[str, Any] | None, now: datetime | No
     else:
         message = "Simulación activa: no se envían órdenes." if config.brain.dry_run else "Envíos habilitados en configuración; esto no prueba su funcionamiento."
     add("execution_mode", "info", message)
-    if config.defender.enabled or config.fleet.enabled:
+    if config.brain.shipyard_enabled:
+        add("shipyard_mode", "info", "Hangar: fabricación REAL habilitada." if config.brain.shipyard_live else "Hangar: simulación de fabricación.")
+    if config.fleet.enabled and config.fleet.expeditions["enabled"]:
+        add("expedition_mode", "info", "Expediciones: envíos REALES habilitados." if config.fleet.expeditions.get("live",False) else "Expediciones: simulación de envíos.")
+    capacity_required = config.defender.enabled or (config.fleet.enabled and (config.fleet.transports["enabled"] or config.fleet.recycling["enabled"] or (config.fleet.expeditions["enabled"] and config.fleet.expeditions.get("composition_mode","automatic") == "automatic")))
+    if capacity_required:
         if not config.fleet.capacities:
             add("ship_capacities", "blocked", "Faltan capacidades de carga verificadas en fleet.capacities.")
     if config.defender.enabled and config.defender.mission in {3, 4} and not config.defender.destinations:

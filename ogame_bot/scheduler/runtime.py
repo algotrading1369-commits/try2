@@ -67,7 +67,7 @@ class BotRuntime:
         if journal is not None and mode in {"full", "defender"}:
             scheduler.add("reconcile", self._reconcile, lambda: (config.scheduler.reconciliation_min_seconds, config.scheduler.reconciliation_max_seconds), allowed=self._reconciliation_ready)
         if mode == "full":
-            if self.brain is not None and (config.brain.builder_enabled or config.brain.research_enabled or config.brain.probe_target):
+            if self.brain is not None and (config.brain.builder_enabled or config.brain.research_enabled or config.brain.probe_target or config.brain.shipyard_enabled):
                 scheduler.add("brain", self._brain, lambda: (config.brain.min_interval_seconds, config.brain.max_interval_seconds), allowed=self._brain_ready)
             if self.fleet is not None and config.fleet.enabled:
                 scheduler.add("fleet", self._fleets, lambda: (config.fleet.min_interval_seconds, config.fleet.max_interval_seconds), allowed=self._routine_ready)
@@ -194,6 +194,7 @@ class BotRuntime:
                 self._request_recovery()
 
     async def _scan(self) -> None:
+        self.scanner.shipyard_required = self.config.brain.shipyard_enabled or bool(self.journal and any(action.kind == "shipyard" for _,action in self.journal.pending_upgrades()))
         if self.latest is None or self._full_scan_requested or self.mode != "full" or self.config.brain.probe_target:
             self.latest = await self.scanner.scan()
         else:
@@ -204,10 +205,10 @@ class BotRuntime:
         self._confirm_snapshot_upgrade()
         if self.journal is not None:
             for identifier, action in self.journal.pending_upgrades():
-                queue = self.latest.research_queue if action.kind == "research" else next((body.construction_queue for body in self.latest.bodies if body.body.id == action.body_id), None)
+                queue = self.latest.research_queue if action.kind == "research" else next((body.shipyard_queue if action.kind == "shipyard" else body.construction_queue for body in self.latest.bodies if body.body.id == action.body_id), None)
                 delay = seconds_until((queue.data or {}).get("ends_at")) if queue else None
                 if delay is not None or self._order_due.get(identifier, 0) <= self.scheduler.clock():
-                    self._order_due[identifier] = self.scheduler.clock() + max(5.0, delay or self.config.brain.idle_retry_seconds)
+                    self._order_due[identifier] = self.scheduler.clock() + max(30.0 if action.kind == "shipyard" else 5.0, delay or self.config.brain.idle_retry_seconds)
             self._schedule_reconciliation()
 
     def _confirm_snapshot_upgrade(self) -> None:
@@ -226,7 +227,8 @@ class BotRuntime:
             return
         reading = snapshot.research if action.kind == "research" else body.ships if action.kind == "shipyard" else body.facilities if action.technology.component == "facilities" else body.buildings
         value = (reading.data or {}).get(action.item)
-        if reading.is_fresh(self.config.scanner_max_reading_age_seconds) and type(value) is int and value >= action.target_level:
+        production_finished = action.kind != "shipyard" or (body.shipyard_queue.is_fresh(self.config.scanner_max_reading_age_seconds) and (body.shipyard_queue.data or {}).get("state") == "free")
+        if reading.is_fresh(self.config.scanner_max_reading_age_seconds) and type(value) is int and value >= action.target_level and production_finished:
             self.journal.mark(identifier, "confirmed")
             self._order_due.pop(identifier, None)
             logger.info("Orden confirmada en la lectura existente: %s, nivel %s.", action.item, action.target_level)
@@ -246,6 +248,8 @@ class BotRuntime:
             report = await self.brain.process(snapshot)
             delay, reason = next_economic_check(self.config, snapshot, report)
             result = report.get("result", {})
+            if (report.get("selected") or {}).get("kind") == "shipyard":
+                delay = max(30.0, delay)
             if result.get("state") == "pending" and result.get("order_id"):
                 self._order_due[result["order_id"]] = self.scheduler.clock() + delay
             report["next_check_seconds"], report["waiting_reason"] = delay, reason
@@ -262,10 +266,17 @@ class BotRuntime:
 
     async def _fleets(self) -> None:
         if self.fleet is not None:
-            if self.latest is None or any(not body.ships.is_fresh(self.config.scanner_max_reading_age_seconds) for body in self.latest.bodies):
+            if self.latest is None or (self.config.fleet.transports["enabled"] and not self.latest.registry.is_fresh(self.config.scanner_max_reading_age_seconds)):
                 self._read_requested = self._full_scan_requested = True
                 await self.scheduler.run_now("scanner")
-            await self.fleet.process(await self._fresh_snapshot())
+            if self.latest is None:
+                raise DependencyPending()
+            report = await self.fleet.process(self.latest)
+            if report.get("result", {}).get("state") == "confirmed":
+                # Re-read actual slots and ships before filling the next slot.
+                self.scheduler.trigger("fleet")
+                self._read_requested = True
+                self.scheduler.trigger("scanner")
 
     async def _reconcile(self) -> None:
         if self.upgrades is not None and self.journal is not None:
@@ -285,7 +296,9 @@ class BotRuntime:
                         self._order_due[identifier] = self.scheduler.clock() + max(30.0, seconds_until(result.get("retry_at")) or self.config.brain.idle_retry_seconds)
             self._schedule_reconciliation()
         if self.fleet_executor is not None and self.journal is not None and self.journal.pending("fleet") is not None:
-            await self.fleet_executor.reconcile()
+            result = await self.fleet_executor.reconcile()
+            if result.get("state") == "confirmed":
+                self.scheduler.trigger("fleet")
 
     def _schedule_reconciliation(self) -> None:
         if self.journal is None:

@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 
 from .config import Config, load_config
-from .brain.catalog import BUILD, RESEARCH
+from .brain.catalog import BUILD, RESEARCH, SHIP_BUILD
 from .readiness import diagnose, load_state
 from .scheduler.loop import read_status
 from .storage.snapshots import save_snapshot
@@ -31,6 +31,7 @@ EDITABLE = {
     "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds", "idle_retry_seconds"},
     "builder": {"enabled", "strategy", "priorities", "reserve", "minimum_energy", "auto_solar", "max_solar_level", "max_payback_days", "economy_speed", "resource_weights", "production_multipliers", "temperatures"},
     "research": {"enabled", "priorities"},
+    "shipyard": {"enabled", "live", "max_batch", "queue"},
     "fleet": {"enabled", "min_interval_seconds", "max_interval_seconds", "reserved_slots", "deuterium_reserve", "maximum_fuel", "maximum_oneway_seconds", "speed_percent", "capacities", "expeditions", "transports", "recycling"},
     "defender": {"enabled", "origins", "destinations", "mission", "speed_percent", "trigger_seconds", "minimum_lead_seconds", "max_state_age_seconds", "minimum_flight_seconds", "maximum_flight_seconds", "maximum_fuel", "resource_policy", "pause_on_unknown", "idle_min_seconds", "idle_max_seconds", "alert_min_seconds", "alert_max_seconds"},
     "scanner": {"enabled", "min_interval_seconds", "max_interval_seconds", "max_bodies_per_scan", "max_reading_age_seconds"},
@@ -58,7 +59,7 @@ class PanelService:
         digest = hashlib.sha256()
         for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "scheduler/waiting.py", "scanner/service.py", "scanner/parsing.py", "core/panel_control.py", "core/session.py", "core/browser.py", "core/action_executor.py", "brain/service.py", "brain/settings.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
             digest.update((project / relative).read_bytes())
-        for relative in ("brain/planner.py", "storage/orders.py", "domain/models.py"):
+        for relative in ("brain/planner.py", "brain/catalog.py", "brain/shipyard.py", "storage/orders.py", "domain/models.py", "fleet/service.py", "fleet/settings.py", "fleet/planner.py", "fleet/reader.py", "fleet/executor.py"):
             digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
@@ -68,6 +69,9 @@ class PanelService:
     def settings(self) -> dict[str, Any]:
         raw_bytes = self.path.read_bytes()
         raw = yaml.safe_load(raw_bytes)
+        raw.setdefault("shipyard", {"enabled":False,"live":False,"max_batch":100,"queue":[]})
+        for key, value in {"live":False,"composition_mode":"automatic","manual_ships":{}}.items():
+            raw["fleet"]["expeditions"].setdefault(key, value)
         raw["automation"].setdefault("probe_target", 0)
         raw["automation"].setdefault("probe_body_id", None)
         raw["automation"].setdefault("probe_bootstrap_live", False)
@@ -137,7 +141,7 @@ class PanelService:
                     for state, payload, updated in rows:
                         action = json.loads(payload)
                         result.append({"state": state, "kind": action.get("kind"), "item": action.get("item"),
-                                       "target": action.get("target_level"), "mission": action.get("mission"), "updated_at": updated})
+                                       "target": action.get("target_level"), "quantity": action.get("target_level",0)-action.get("current_level",0) if action.get("kind")=="shipyard" else None, "production_key":action.get("production_key"), "mission": action.get("mission"), "updated_at": updated})
                     return result
             except (sqlite3.Error, ValueError, OSError, AttributeError):
                 continue
@@ -168,7 +172,8 @@ class PanelService:
                     "settings": self.settings(), "process": self.process_status(),
                     "instructions": self.instruction_status(),
                     "catalog": {"building": [{"item": key, "name": value.name_es} for key, value in BUILD.items()],
-                                "research": [{"item": key, "name": value.name_es} for key, value in RESEARCH.items()]},
+                                "research": [{"item": key, "name": value.name_es} for key, value in RESEARCH.items()],
+                                "shipyard": [{"item":key,"name":value.name_es} for key,value in SHIP_BUILD.items()]},
                     "scheduler": self.scheduler_status(), "snapshot": snapshot,
                     "defender": load_state(self.config.defender.report_file), "plan": load_state(self.config.brain.plan_file),
                     "fleet_plan": load_state(self.config.fleet.plan_file),
@@ -185,7 +190,7 @@ class PanelService:
             for section, keys in EDITABLE.items():
                 if not isinstance(payload[section], dict) or set(payload[section]) != keys:
                     raise PanelError("Campos de configuración no admitidos.")
-                raw[section].update(payload[section])
+                raw.setdefault(section, {}).update(payload[section])
             temperatures = raw["builder"]["temperatures"]
             if not isinstance(temperatures, dict):
                 raise PanelError("Las temperaturas deben ser un objeto de IDs de planeta y valores numéricos.")

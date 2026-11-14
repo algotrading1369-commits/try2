@@ -2,18 +2,44 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from ..errors import ConfigurationError
-from .catalog import BUILD, RESEARCH, MINES
+from .catalog import BUILD, RESEARCH, MINES, SHIP_BUILD
 
 
 @dataclass(frozen=True)
 class Goal:
     item: str
     target_level: int
+
+
+@dataclass(frozen=True)
+class ShipGoal:
+    id: str
+    body_id: int
+    item: str
+    quantity: int
+
+
+def load_shipyard(raw: Any) -> tuple[bool, bool, int, tuple[ShipGoal, ...]]:
+    if not isinstance(raw, dict) or set(raw) != {"enabled", "live", "max_batch", "queue"}:
+        raise ConfigurationError("shipyard requiere enabled, live, max_batch y queue.")
+    if type(raw["enabled"]) is not bool or type(raw["live"]) is not bool or type(raw["max_batch"]) is not int or not 1 <= raw["max_batch"] <= 1000000 or not isinstance(raw["queue"], list):
+        raise ConfigurationError("Ajustes de hangar inválidos.")
+    goals: list[ShipGoal] = []
+    for row in raw["queue"]:
+        if not isinstance(row, dict) or set(row) != {"id", "body_id", "item", "quantity"}:
+            raise ConfigurationError("Cada orden de hangar requiere id, body_id, item y quantity.")
+        if not isinstance(row["id"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", row["id"]) or any(goal.id == row["id"] for goal in goals):
+            raise ConfigurationError("ID de orden de hangar inválido o duplicado.")
+        if not isinstance(row["item"], str) or row["item"] not in SHIP_BUILD or type(row["body_id"]) is not int or row["body_id"] <= 0 or type(row["quantity"]) is not int or not 1 <= row["quantity"] <= 1000000000:
+            raise ConfigurationError("Nave, planeta o cantidad de hangar inválidos.")
+        goals.append(ShipGoal(**row))
+    return raw["enabled"], raw["live"], raw["max_batch"], tuple(goals)
 
 
 @dataclass(frozen=True)
@@ -42,6 +68,10 @@ class BrainSettings:
     probe_bootstrap_live: bool = False
     economic_live: bool = False
     idle_retry_seconds: float = 600
+    shipyard_enabled: bool = False
+    shipyard_live: bool = False
+    shipyard_max_batch: int = 100
+    shipyard_queue: tuple[ShipGoal, ...] = ()
 
 
 def effective_brain_settings(settings: BrainSettings, *, probe_completed: bool) -> BrainSettings:
@@ -136,6 +166,7 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         raise ConfigurationError("probe_body_id debe ser un identificador positivo.")
     if (probe_target == 1 and probe_body is None) or (probe_live and probe_target != 1):
         raise ConfigurationError("La preparación de sonda requiere objetivo 1 y planeta explícito.")
+    shipyard_enabled, shipyard_live, shipyard_batch, shipyard_queue = load_shipyard(raw.get("shipyard", {"enabled": False, "live": False, "max_batch": 100, "queue": []}))
     return BrainSettings(
         dry_run=get("automation", "dry_run", bool), journal_file=path("journal_file"), plan_file=path("plan_file"),
         min_interval_seconds=minimum_interval, max_interval_seconds=maximum_interval,
@@ -148,4 +179,5 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         production_multipliers=mapping("production_multipliers"), temperatures=temperatures,
         probe_target=probe_target, probe_body_id=probe_body, probe_bootstrap_live=probe_live, economic_live=economic_live,
         idle_retry_seconds=number(raw["automation"].get("idle_retry_seconds", 600), "idle_retry_seconds", 30),
+        shipyard_enabled=shipyard_enabled, shipyard_live=shipyard_live, shipyard_max_batch=shipyard_batch, shipyard_queue=shipyard_queue,
     )

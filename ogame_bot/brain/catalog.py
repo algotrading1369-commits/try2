@@ -65,6 +65,22 @@ RESEARCH = {
     "astrophysics": Technology(124, "Astrofísica", "research", (4000, 8000, 4000), "1.75", True),
 }
 SHIP_BUILD = {"espionage_probe": Technology(210, "Sonda de espionaje", "shipyard", (0, 1000, 0), "1")}
+SHIP_BUILD.update({
+    "small_cargo": Technology(202, "Nave pequeña de carga", "shipyard", (2000, 2000, 0), "1"),
+    "large_cargo": Technology(203, "Nave grande de carga", "shipyard", (6000, 6000, 0), "1"),
+    "light_fighter": Technology(204, "Cazador ligero", "shipyard", (3000, 1000, 0), "1"),
+    "heavy_fighter": Technology(205, "Cazador pesado", "shipyard", (6000, 4000, 0), "1"),
+    "cruiser": Technology(206, "Crucero", "shipyard", (20000, 7000, 2000), "1"),
+    "battleship": Technology(207, "Nave de batalla", "shipyard", (45000, 15000, 0), "1"),
+    "colony_ship": Technology(208, "Colonizador", "shipyard", (10000, 20000, 10000), "1"),
+    "recycler": Technology(209, "Reciclador", "shipyard", (10000, 6000, 2000), "1"),
+    "bomber": Technology(211, "Bombardero", "shipyard", (50000, 25000, 15000), "1"),
+    "destroyer": Technology(213, "Destructor", "shipyard", (60000, 50000, 15000), "1"),
+    "deathstar": Technology(214, "Estrella de la muerte", "shipyard", (5000000, 4000000, 1000000), "1"),
+    "battlecruiser": Technology(215, "Acorazado", "shipyard", (30000, 40000, 15000), "1"),
+    "reaper": Technology(218, "Segador", "shipyard", (85000, 55000, 20000), "1"),
+    "pathfinder": Technology(219, "Explorador", "shipyard", (8000, 15000, 8000), "1"),
+})
 PROBE_BUILD_REQUIREMENTS = {"robotics_factory": 2, "research_lab": 3, "shipyard": 3}
 PROBE_RESEARCH_REQUIREMENTS = {"energy_technology": 1, "combustion_drive": 3, "espionage_technology": 2}
 MINES = {"metal_mine": ("metal", 30, 10), "crystal_mine": ("crystal", 20, 10), "deuterium_synthesizer": ("deuterium", 10, 20)}

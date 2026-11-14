@@ -102,6 +102,9 @@ fleet:
     probe: true
     combat_ship: null
     max_parallel: 1
+    live: false
+    composition_mode: automatic
+    manual_ships: {}
   transports:
     enabled: false
     sources: []
@@ -177,3 +180,8 @@ scheduler:
     scanner: 30
     brain: 40
     fleet: 50
+shipyard:
+  enabled: false
+  live: false
+  max_batch: 100
+  queue: []

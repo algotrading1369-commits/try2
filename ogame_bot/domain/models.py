@@ -50,6 +50,7 @@ class BodySnapshot:
     ships: Reading[dict[str, int]] = field(default_factory=lambda: Reading.unavailable("not_scanned"))
     construction_queue: Reading[dict[str, str]] = field(default_factory=lambda: Reading.unavailable("not_scanned"))
     temperature: Reading[dict[str, int]] = field(default_factory=lambda: Reading.unavailable("not_scanned"))
+    shipyard_queue: Reading[dict[str, str]] = field(default_factory=lambda: Reading.unavailable("not_scanned"))
 
 
 @dataclass

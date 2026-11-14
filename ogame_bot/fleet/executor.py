@@ -81,7 +81,8 @@ class FleetExecutor:
             return False
         if flight.mission == 15:
             section = settings.expeditions
-            return section["enabled"] and flight.origin_id in section["origins"] and flight.holding_hours == section["holding_hours"]
+            composition_allowed = section.get("composition_mode", "automatic") != "manual" or flight.ships == section["manual_ships"]
+            return section["enabled"] and flight.origin_id in section["origins"] and flight.holding_hours == section["holding_hours"] and composition_allowed
         if flight.mission == 3:
             section = settings.transports
             return section["enabled"] and flight.origin_id in section["sources"] and flight.destination_id == section["destination_id"] and set(flight.ships) == {section["cargo_ship"]}
@@ -99,7 +100,8 @@ class FleetExecutor:
         defensive = flight.purpose == "defender"
         if not defensive and self.session.defense_paused is True:
             return {"state": "blocked", "reason": "defender_paused_routine_actions"}
-        if self.config.brain.dry_run:
+        live_expedition = flight.mission == 15 and self.config.fleet.expeditions.get("live", False)
+        if self.config.brain.dry_run and not live_expedition:
             result: dict[str, Any] = {"state": "simulated", "action": flight.to_dict()}
             if flight.mission == 6:
                 result.update({"timing_verified": False, "requires_live_quote": True})

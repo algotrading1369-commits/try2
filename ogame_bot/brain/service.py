@@ -11,6 +11,7 @@ from ..storage.orders import OrderJournal
 from ..storage.snapshots import save_snapshot
 from .planner import Planner, Upgrade
 from .settings import effective_brain_settings
+from .shipyard import plan_shipyard
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,9 @@ class Brain:
         settings = effective_brain_settings(self.config.brain, probe_completed=completed)
         self.planner.settings = settings
         actions = self.planner.plan(snapshot)
+        production, notes = plan_shipyard(snapshot, settings, self.journal, self.config.scanner_max_reading_age_seconds)
+        actions.extend(production)
+        self.planner.notes.extend(notes)
         available = [action for action in actions if self.journal.pending_for(action) is None]
         selected = self.select(available)
         report: dict[str, Any] = {
@@ -54,6 +58,7 @@ class Brain:
         report["probe_bootstrap_live"] = settings.probe_bootstrap_live
         report["probe_bootstrap_completed"] = completed
         report["automation_mode"] = "probe" if settings.probe_target else "routine"
+        report["shipyard_progress"] = [{"id":goal.id,"body_id":goal.body_id,"item":goal.item,"quantity":goal.quantity,"confirmed":self.journal.produced(goal.id,goal.body_id,goal.item)} for goal in settings.shipyard_queue]
         # Una propuesta queda guardada incluso si el proceso se interrumpe al ejecutar.
         save_snapshot(self.config.brain.plan_file, report)
         if selected is None:

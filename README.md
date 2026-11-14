@@ -2,7 +2,9 @@
 
 Implementación independiente del prototipo de la carpeta superior. Python 3.11+.
 No comparte su perfil ni cambia los archivos de estado del prototipo anterior.
-Mejoras y envíos parten en simulación; la ejecución real depende de dry_run.
+Mejoras y envíos parten en simulación. El panel permite habilitar por separado
+economía, fabricación y expediciones reales, conservando la simulación general
+para las demás misiones. Véase [Hangar y Expediciones](HANGAR_EXPEDICIONES.md).
 La excepción explícita `probe_bootstrap_live: true` habilita solo los requisitos
 y una sonda, manteniendo las flotas en simulación. Véase [SONDA.md](SONDA.md).
 El acceso inicial y la entrada desde el Lobby al universo

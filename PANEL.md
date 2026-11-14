@@ -18,8 +18,9 @@ las pestañas anteriores pueden seguir conectadas a un servicio antiguo.
   prioridades, un objetivo de nivel se completa antes del siguiente.
 - Investigación: cola de objetivos reordenable, una investigación a la vez.
 - Expediciones: orígenes, composición, permanencia, clase, top 1 y paralelismo.
-- Hangar: preparación limitada de una sonda con sus requisitos. Su historial
-  impide repetirla tras reiniciar. Todavía no hay una cola general de naves.
+- Hangar: cola general de naves por planeta y cantidades, con lotes limitados
+  por recursos. Su historial impide repetir cantidades confirmadas al reiniciar.
+  La preparación antigua de sonda conserva su control independiente.
 - Defensa: vigilancia, ventanas de reacción, frecuencia y alertas Telegram.
 - FleetSave: evacuación reactiva ante ataque y transportes a cuerpos propios.
   No implementa salida programada por hora ni cancelación automática. Un

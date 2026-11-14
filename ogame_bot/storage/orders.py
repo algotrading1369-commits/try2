@@ -91,6 +91,21 @@ class OrderJournal:
         scope = self.upgrade_scope(action)
         return next((order for order in self.pending_upgrades() if self.upgrade_scope(order[1]) == scope), None)
 
+    def produced(self, key: str, body_id: int, item: str) -> int:
+        total = 0
+        for row in self.connection.execute("SELECT state, action FROM orders WHERE scope LIKE 'upgrade:shipyard:%'"):
+            try:
+                action = Upgrade.from_dict(json.loads(row["action"]))
+            except (ValueError, TypeError, KeyError) as error:
+                raise CoreError("No se pudo verificar el historial del hangar.") from error
+            if action.production_key != key:
+                continue
+            if action.body_id != body_id or action.item != item:
+                raise CoreError("El ID de fabricación ya pertenece a otra nave o planeta. Añade una orden nueva.")
+            if row["state"] == "confirmed":
+                total += action.quantity
+        return total
+
     def pending(self, scope: str | None = None) -> tuple[str, Upgrade | Flight] | None:
         if scope not in {None, "upgrade", "fleet"}:
             raise ValueError("Categoría de orden inválida.")

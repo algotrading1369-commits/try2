@@ -52,8 +52,9 @@ class FleetPlanner:
     def _body(self, snapshot: AccountSnapshot, identifier: int) -> BodySnapshot | None:
         return next((body for body in snapshot.bodies if body.body.id == identifier), None)
 
-    def _available(self, body: BodySnapshot, ships: dict[str, int]) -> bool:
-        return body.ships.is_fresh(self.max_age) and body.resources.is_fresh(self.max_age) and all(type((body.ships.data or {}).get(ship)) is int and body.ships.data[ship] >= count for ship, count in ships.items()) and (body.resources.data or {}).get("deuterium", -1) >= self.settings.deuterium_reserve + self.settings.maximum_fuel
+    def _available(self, body: BodySnapshot, ships: dict[str, int], *, quoted_later: bool = False) -> bool:
+        fuel = 1 if quoted_later else self.settings.maximum_fuel
+        return body.ships.is_fresh(self.max_age) and body.resources.is_fresh(self.max_age) and all(type((body.ships.data or {}).get(ship)) is int and body.ships.data[ship] >= count for ship, count in ships.items()) and (body.resources.data or {}).get("deuterium", -1) >= self.settings.deuterium_reserve + fuel
 
     def plan(self, snapshot: AccountSnapshot) -> list[Flight]:
         self.notes = []
@@ -76,14 +77,15 @@ class FleetPlanner:
         # Son alternativas: se ejecutará solo una y se releerá antes del siguiente envío.
         expo = settings.expeditions
         if expo["enabled"] and slots["expedition_total"] > slots["expedition_used"] and slots["expedition_used"] < expo["max_parallel"]:
-            if snapshot.top1.is_fresh(expo["top1_max_age_seconds"]) and snapshot.top1.data:
+            manual = expo.get("composition_mode", "automatic") == "manual"
+            if manual or (snapshot.top1.is_fresh(expo["top1_max_age_seconds"]) and snapshot.top1.data):
                 try:
-                    ships, target = expedition_composition(settings, snapshot.top1.data["points"])
+                    ships, target = (dict(expo["manual_ships"]), None) if manual else expedition_composition(settings, snapshot.top1.data["points"])
                     for identifier in expo["origins"]:
                         body = self._body(snapshot, identifier)
-                        if body is not None and self._available(body, ships):
+                        if body is not None and self._available(body, ships, quoted_later=True):
                             galaxy, system, _ = coordinates(body.body.coordinates)
-                            actions.append(Flight("fleet", 15, identifier, body.body.coordinates, f"{galaxy}:{system}:16", 1, None, ships, dict(zero), settings.speed_percent, expo["holding_hours"], f"modeled_resource_capacity_{target}", baseline))
+                            actions.append(Flight("fleet", 15, identifier, body.body.coordinates, f"{galaxy}:{system}:16", 1, None, ships, dict(zero), settings.speed_percent, expo["holding_hours"], "manual_composition" if manual else f"modeled_resource_capacity_{target}", baseline))
                             break
                     else:
                         self.notes.append({"reason": "expedition_ships_or_fuel_unavailable"})
@@ -91,6 +93,8 @@ class FleetPlanner:
                     self.notes.append({"reason": "expedition_model_incomplete", "detail": str(error)})
             else:
                 self.notes.append({"reason": "top1_unknown_or_expired"})
+        elif expo["enabled"]:
+            self.notes.append({"reason": "expedition_slots_exhausted"})
         transport = settings.transports
         if transport["enabled"]:
             destination = next((body for body in snapshot.registry.data or [] if body.id == transport["destination_id"]), None)

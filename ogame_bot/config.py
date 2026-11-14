@@ -79,7 +79,7 @@ def load_config(path: Path) -> Config:
         "logging": {"file", "rotation_mb", "backup_count"},
         "scanner": {"enabled", "output_file", "min_interval_seconds", "max_interval_seconds", "max_bodies_per_scan", "max_reading_age_seconds"},
     }
-    if set(raw) != {"version", *schema, "automation", "builder", "research", "fleet", "defender", "telegram", "scheduler"}:
+    if set(raw) - {"shipyard"} != {"version", *schema, "automation", "builder", "research", "fleet", "defender", "telegram", "scheduler"}:
         raise ConfigurationError("Faltan secciones o hay secciones desconocidas.")
     for name, fields in schema.items():
         if not isinstance(raw[name], dict) or set(raw[name]) != fields:
@@ -152,7 +152,7 @@ def load_config(path: Path) -> Config:
     outputs = (config.scanner_output_file, config.brain.journal_file, config.brain.plan_file, config.fleet.plan_file, config.defender.report_file, config.telegram.state_file, config.scheduler.status_file, config.log_file, path.resolve())
     if len(set(outputs)) != len(outputs) or any(output.is_relative_to(config.profile_dir) for output in outputs):
         raise ConfigurationError("Las rutas de configuración, logs, estado, órdenes y planes deben ser distintas y ajenas al perfil.")
-    if not config.scanner_enabled and (config.brain.builder_enabled or config.brain.research_enabled):
+    if not config.scanner_enabled and (config.brain.builder_enabled or config.brain.research_enabled or config.brain.shipyard_enabled):
         raise ConfigurationError("El módulo 3 requiere scanner.enabled: true.")
     if config.fleet.enabled and not config.scanner_enabled:
         raise ConfigurationError("El módulo 4 requiere scanner.enabled: true.")

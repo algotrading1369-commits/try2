@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import Any
+import re
 
 from ..domain.models import AccountSnapshot, BodySnapshot, Reading
 from .catalog import BUILD, RESEARCH, SHIP_BUILD, PROBE_BUILD_REQUIREMENTS, PROBE_RESEARCH_REQUIREMENTS, MINES, Technology, energy_delta, level_curve, solar_gain
@@ -20,6 +21,11 @@ class Upgrade:
     cost: dict[str, int]
     reason: str
     payback_days: float | None = None
+    production_key: str | None = None
+
+    @property
+    def quantity(self) -> int:
+        return self.target_level - self.current_level if self.kind == "shipyard" else 1
 
     @property
     def technology(self) -> Technology:
@@ -34,12 +40,16 @@ class Upgrade:
         catalogs = {"building": BUILD, "research": RESEARCH, "shipyard": SHIP_BUILD}
         if item.kind not in catalogs or item.item not in catalogs[item.kind]:
             raise ValueError("Orden con tecnología desconocida.")
-        if type(item.body_id) is not int or item.body_id <= 0 or type(item.current_level) is not int or type(item.target_level) is not int or not 0 <= item.current_level < 100 or item.target_level != item.current_level + 1:
+        if type(item.body_id) is not int or item.body_id <= 0 or type(item.current_level) is not int or type(item.target_level) is not int or not 0 <= item.current_level or (item.kind != "shipyard" and (item.current_level >= 100 or item.target_level != item.current_level + 1)):
             raise ValueError("Orden con cuerpo o nivel inválido.")
-        if item.cost != item.technology.cost(item.target_level):
+        expected = {key: value * item.quantity for key, value in item.technology.cost(1).items()} if item.kind == "shipyard" else item.technology.cost(item.target_level)
+        if item.cost != expected:
             raise ValueError("El coste de la orden no coincide con el modelo.")
-        if item.kind == "shipyard" and (item.current_level != 0 or item.target_level != 1):
+        if item.kind == "shipyard" and not (1 <= item.quantity <= 1000000 and item.target_level <= 1000000000 and (item.production_key is not None or (item.item == "espionage_probe" and item.current_level == 0 and item.target_level == 1))):
             raise ValueError("La preparación solo permite fabricar una sonda desde inventario cero.")
+        if item.production_key is not None:
+            if item.kind != "shipyard" or not isinstance(item.production_key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", item.production_key):
+                raise ValueError("Identificador de fabricación inválido.")
         return item
 
 

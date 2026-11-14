@@ -239,7 +239,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         async def brain(*args):
             order.append("brain")
             return {"result": {"state": "no_action"}, "notes": []}
-        async def fleet(*args): order.append("fleet")
+        async def fleet(*args):
+            order.append("fleet")
+            return {"result":{"state":"no_action"}}
         self.defender.process.side_effect = defend
         self.runtime.scanner.scan.side_effect = scan
         self.runtime.brain.process.side_effect = brain
