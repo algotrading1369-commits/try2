@@ -89,14 +89,26 @@ class PanelServiceTests(unittest.TestCase):
             with self.assertRaises(PanelError):
                 self.service.save_settings(payload)
 
-    def test_running_process_prevents_config_edit_and_duplicate_start(self) -> None:
+    def test_running_process_accepts_instructions_but_prevents_duplicate_start(self) -> None:
         self.service.process = MagicMock(pid=55)
         self.service.process.poll.return_value = None
-        with self.assertRaises(PanelError):
-            self.service.save_settings(self.service.settings())
+        payload = self.service.settings()
+        payload["builder"]["reserve"]["metal"] = 321
+        self.service.save_settings(payload)
+        self.assertEqual(load_config(self.path).brain.reserve["metal"], 321)
         with patch("ogame_bot.panel_service.subprocess.Popen") as launch, self.assertRaises(PanelError):
             self.service.start()
         launch.assert_not_called()
+
+    def test_active_browser_changes_require_restart_but_keep_other_settings_intact(self) -> None:
+        self.service.process = MagicMock(pid=55)
+        self.service.process.poll.return_value = None
+        before = self.path.read_bytes()
+        payload = self.service.settings()
+        payload["browser"]["headless"] = not payload["browser"]["headless"]
+        with self.assertRaises(ConfigurationError):
+            self.service.save_settings(payload)
+        self.assertEqual(self.path.read_bytes(), before)
 
     def test_start_uses_fixed_module_and_per_process_stop_token(self) -> None:
         with patch("ogame_bot.panel_service.subprocess.Popen") as launch:

@@ -50,7 +50,7 @@ const moduleDefinitions = [
  ['Reciclaje cercano (planificación)',[
  ['fleet.recycling.enabled','Buscar escombros','bool'],['fleet.recycling.origins','IDs de orígenes','ids'],['fleet.recycling.radius_systems','Radio de sistemas (0–20)','number',0],
  ['fleet.recycling.minimum_debris','Escombros mínimos','number',1],['fleet.recycling.max_systems_per_cycle','Sistemas por ciclo (1–100)','number',1]]]]},
- {id:'settings',name:'Configuración general',icon:'⚙',help:'Los ajustes se validan y guardan con copia de respaldo. Se aplican al próximo arranque. Los envíos de flota permanecen en simulación.',groups:[
+ {id:'settings',name:'Configuración general',icon:'⚙',help:'Puedes guardar instrucciones con el bot activo. Se aplican entre operaciones y conservan copia de respaldo. El canal, idioma y visibilidad del navegador requieren reiniciar. Los envíos de flota permanecen en simulación.',groups:[
  ['Gestor de flotas',[
  ['fleet.enabled','Habilitar evaluación de flotas','bool'],['fleet.min_interval_seconds','Intervalo mínimo de flotas (s)','number',1],['fleet.max_interval_seconds','Intervalo máximo de flotas (s)','number',1],
  ['fleet.reserved_slots','Slots que deben quedar libres','number',0],['fleet.deuterium_reserve','Reserva de deuterio de flotas','number',0],['fleet.maximum_fuel','Combustible máximo por envío','number',1],

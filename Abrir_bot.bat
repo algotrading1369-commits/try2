@@ -1,2 +1,2 @@
 @echo off
-call "%~dp0run_bot.bat"
+call "%~dp0Abrir_panel.bat"

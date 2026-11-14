@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
 
 from ..adapters.ogame.reader import OGameReader
 from ..brain.service import Brain
-from ..config import Config
+from ..config import Config, load_config
+from ..live_config import config_version, validate_live_change, report_config
+from ..errors import CoreError
+from ..observability.telegram import TelegramTransport
 from ..core.action_executor import ActionExecutor
 from ..core.session import SessionManager, SessionState
 from ..defender.service import Defender
@@ -18,25 +22,39 @@ from ..scanner.service import Scanner
 from ..storage.orders import OrderJournal
 from .loop import DependencyPending, Scheduler
 
+logger = logging.getLogger(__name__)
+
 
 class BotRuntime:
     def __init__(self, config: Config, session: SessionManager, journal: OrderJournal | None, defender: Defender | None, *, mode: str = "full") -> None:
         if mode not in {"full", "session", "scanner", "defender"}:
             raise ValueError("Modo continuo desconocido.")
         self.config, self.session, self.journal, self.defender = config, session, journal, defender
+        self.mode = mode
+        self._seen_version = config.source_version
+        self._applied_version = self._seen_version
         self.latest: AccountSnapshot | None = None
         self._snapshot_finished = float("-inf")
-        self.scheduler = Scheduler(config.scheduler, watchdog=session._check_open, on_recoverable=self._recoverable)
+        self.scheduler = Scheduler(config.scheduler, watchdog=self._watchdog, on_recoverable=self._recoverable, on_idle=self._reload_instructions)
         self.scanner = Scanner(OGameReader(session), config)
         self.upgrades = ActionExecutor(session, config, journal) if journal is not None else None
         self.fleet_executor = FleetExecutor(session, config, journal) if journal is not None else None
         self.brain = Brain(config, self.upgrades, journal) if journal is not None else None
         self.fleet = FleetManager(config, FleetReader(session, config), self.fleet_executor, journal) if journal is not None else None
+        self._configure_jobs()
+        report_config(config, self._applied_version, "applied", mode=mode)
+
+    def _configure_jobs(self) -> None:
+        config, mode, session, journal, defender = self.config, self.mode, self.session, self.journal, self.defender
         scheduler = self.scheduler
+        previous = scheduler.jobs.copy()
+        scheduler.jobs.clear()
         scheduler.add("session", self._session, lambda: (config.health_check_seconds, config.health_check_seconds), immediate=False)
-        if defender is not None and mode in {"full", "defender"}:
+        if defender is not None and config.defender.enabled and mode in {"full", "defender"}:
             session.defense_paused = True
             scheduler.add("defender", self._defend, self._defender_interval, critical=True)
+        else:
+            session.defense_paused = False
         if mode in {"full", "scanner"} and (config.scanner_enabled or mode == "scanner"):
             scheduler.add("scanner", self._scan, lambda: (config.scanner_min_interval_seconds, config.scanner_max_interval_seconds), allowed=self._session_ready)
         if journal is not None and mode in {"full", "defender"}:
@@ -46,6 +64,51 @@ class BotRuntime:
                 scheduler.add("brain", self._brain, lambda: (config.brain.min_interval_seconds, config.brain.max_interval_seconds), allowed=self._routine_ready)
             if self.fleet is not None and config.fleet.enabled:
                 scheduler.add("fleet", self._fleets, lambda: (config.fleet.min_interval_seconds, config.fleet.max_interval_seconds), allowed=self._routine_ready)
+        for name, job in scheduler.jobs.items():
+            if name in previous:
+                for key in ("runs", "failures", "consecutive_failures", "deferred", "last_result", "last_error_type", "last_started_at", "last_finished_at", "last_duration_seconds"):
+                    setattr(job, key, getattr(previous[name], key))
+
+    def _watchdog(self) -> None:
+        self.session._check_open()
+        self._reload_instructions()
+
+    def _reload_instructions(self) -> None:
+        if self.scheduler.stack or self.config.source_file is None:
+            return
+        version: str | None = None
+        try:
+            version = config_version(self.config)
+            if version == self._seen_version:
+                return
+            self._seen_version = version
+            candidate = load_config(self.config.source_file)
+            if candidate.source_version != version:
+                self._seen_version = None
+                return
+            validate_live_change(self.config, candidate)
+            sender = TelegramTransport(candidate.telegram).send if self.defender is not None else None
+            self.config = candidate
+            self.session.config = candidate
+            self.session.context.set_default_timeout(candidate.action_timeout_seconds * 1000)
+            self.session.context.set_default_navigation_timeout(candidate.navigation_timeout_seconds * 1000)
+            self.scanner = Scanner(OGameReader(self.session), candidate)
+            self.upgrades = ActionExecutor(self.session, candidate, self.journal) if self.journal is not None else None
+            self.fleet_executor = FleetExecutor(self.session, candidate, self.journal) if self.journal is not None else None
+            self.brain = Brain(candidate, self.upgrades, self.journal) if self.journal is not None else None
+            self.fleet = FleetManager(candidate, FleetReader(self.session, candidate), self.fleet_executor, self.journal) if self.journal is not None else None
+            if self.defender is not None:
+                alerts = self.defender.alerts
+                alerts.settings, alerts.sender = candidate.telegram, sender
+                self.defender = Defender(self.session, candidate, self.journal, alerts)
+            self.latest = None
+            self._configure_jobs()
+            self._applied_version = version
+            report_config(candidate, version, "applied", mode=self.mode)
+            logger.info("Instrucciones del panel aplicadas sin cerrar la sesión del juego.")
+        except (CoreError, OSError, ValueError):
+            report_config(self.config, version, "rejected", mode=self.mode, error="No se pudieron aplicar las instrucciones. Se conserva la configuración anterior.")
+            logger.warning("No se pudieron aplicar las instrucciones actualizadas.")
 
     def _session_ready(self) -> str | None:
         return None if self.session.state == SessionState.READY else "session_not_ready"
@@ -70,7 +133,7 @@ class BotRuntime:
     def _recoverable(self, name: str, error: Exception) -> None:
         if isinstance(error, (LoginRequired, ConnectionLost)):
             self.session.state = SessionState.WAITING_LOGIN
-            if self.defender is not None:
+            if self.defender is not None and self.config.defender.enabled:
                 self.session.defense_paused = True
             if name != "session":
                 self._request_recovery()
@@ -79,7 +142,7 @@ class BotRuntime:
         previous_state = self.session.state
         previous_generation = self.session.authentication_generation
         await self.session.check()
-        if self.defender is not None and (previous_state != SessionState.READY or previous_generation != self.session.authentication_generation):
+        if self.defender is not None and self.config.defender.enabled and (previous_state != SessionState.READY or previous_generation != self.session.authentication_generation):
             self.session.defense_paused = True
             self.scheduler.trigger("defender")
 

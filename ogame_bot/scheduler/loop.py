@@ -59,9 +59,10 @@ class Job:
 
 
 class Scheduler:
-    def __init__(self, settings: SchedulerSettings, *, clock: Callable[[], float] = time.monotonic, uniform: Callable[[float, float], float] = random.uniform, watchdog: Callable[[], None] | None = None, on_recoverable: Callable[[str, Exception], None] | None = None) -> None:
+    def __init__(self, settings: SchedulerSettings, *, clock: Callable[[], float] = time.monotonic, uniform: Callable[[float, float], float] = random.uniform, watchdog: Callable[[], None] | None = None, on_recoverable: Callable[[str, Exception], None] | None = None, on_idle: Callable[[], None] | None = None) -> None:
         self.settings, self.clock, self.uniform = settings, clock, uniform
         self.watchdog, self.on_recoverable = watchdog, on_recoverable
+        self.on_idle = on_idle
         self.jobs: dict[str, Job] = {}
         self.stack: list[Job] = []
         self.state = "created"
@@ -168,6 +169,9 @@ class Scheduler:
             job.last_duration_seconds = max(0, self.clock() - started)
             job.last_finished_at = datetime.now(timezone.utc).isoformat()
             self.publish(force=True)
+
+            if not self.stack and self.on_idle is not None:
+                self.on_idle()
 
     async def run_due(self) -> int:
         count = 0

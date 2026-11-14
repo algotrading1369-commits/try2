@@ -54,7 +54,7 @@ def register_control(directory: Path) -> str:
     token = os.environ.get("OGAME_PANEL_CONTROL_TOKEN") or secrets.token_urlsafe(32)
     os.environ["OGAME_PANEL_CONTROL_TOKEN"] = token
     save_snapshot(directory / "bot_control.json", {"pid": os.getpid(), "token": token,
-                                                 "birth": process_identity(os.getpid())})
+                                                 "birth": process_identity(os.getpid()), "protocol": 4})
     # A stop may have been requested before the Windows venv launcher handed
     # over to this interpreter. The random launch capability binds that request.
     stop_file = directory / "panel_stop.json"

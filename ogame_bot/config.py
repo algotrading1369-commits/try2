@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,8 @@ class Config:
     defender: DefenderSettings
     telegram: TelegramSettings
     scheduler: SchedulerSettings
+    source_file: Path | None = None
+    source_version: str | None = None
 
     @property
     def server_origin(self) -> str:
@@ -62,8 +65,9 @@ def load_config(path: Path) -> Config:
     except ImportError as error:
         raise ConfigurationError("Instala las dependencias de modulo1/requirements.txt.") from error
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as error:
+        source_bytes = path.read_bytes()
+        raw = yaml.safe_load(source_bytes.decode("utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as error:
         raise ConfigurationError("No se pudo leer el archivo YAML.") from error
     if not isinstance(raw, dict) or type(raw.get("version")) is not int or raw["version"] != 1:
         raise ConfigurationError("Se requiere un objeto YAML con version: 1.")
@@ -133,6 +137,8 @@ def load_config(path: Path) -> Config:
         fleet=load_fleet_settings(raw["fleet"], path.resolve().parent),
         defender=defender, telegram=telegram,
         scheduler=load_scheduler_settings(raw["scheduler"], path.resolve().parent),
+        source_file=path.resolve(),
+        source_version=hashlib.sha256(source_bytes).hexdigest(),
     )
     if config.min_delay_seconds > config.max_delay_seconds:
         raise ConfigurationError("El retraso mínimo supera el máximo.")

@@ -25,6 +25,7 @@ from .storage.snapshots import save_snapshot
 from .core.panel_control import registered_control, stop_requested as control_stop_requested
 from .core.locking import profile_lock
 from .errors import CoreError
+from .live_config import validate_live_change
 
 EDITABLE = {
     "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds"},
@@ -55,7 +56,7 @@ class PanelService:
         self.installation = hashlib.sha256(str(self.path).encode()).hexdigest()[:16]
         project = Path(__file__).parent
         digest = hashlib.sha256()
-        for relative in ("panel.py", "panel_service.py", "core/panel_control.py", "core/session.py", "core/browser.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
+        for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "core/panel_control.py", "core/session.py", "core/browser.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
             digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
@@ -93,7 +94,20 @@ class PanelService:
         return {"owned_running": owned, "pid": target_pid,
                 "exit_code": code, "stop_requested": requested,
                 "can_stop": controllable, "registered_running": control is not None,
+                "live_updates_supported": control is not None and control.get("protocol", 0) >= 4,
                 "external_running": not owned and (control is not None or legacy_active)}
+
+    def instruction_status(self) -> dict[str, Any]:
+        desired = self.settings()["version"]
+        control = registered_control(self.config.scheduler.status_file.with_name("bot_control.json"))
+        if control is None:
+            return {"state": "saved", "version": desired}
+        if control.get("protocol", 0) < 4:
+            return {"state": "upgrade_required", "version": desired}
+        applied = load_state(self.config.scheduler.status_file.with_name("config_status.json"))
+        if applied and applied.get("pid") == control["pid"] and applied.get("birth") == control["birth"] and applied.get("version") == desired:
+            return applied
+        return {"state": "pending", "version": desired}
 
     def scheduler_status(self) -> dict[str, Any]:
         from .errors import CoreError
@@ -146,9 +160,10 @@ class PanelService:
                     console_logs = handle.read().decode("utf-8", errors="replace").splitlines()[-30:]
             except OSError:
                 console_logs = []
-            return {"application": "ogame-local-panel", "installation": self.installation, "backend_build": self.backend_build, "control_protocol": 3, "csrf": self.csrf,
+            return {"application": "ogame-local-panel", "installation": self.installation, "installation_path": str(self.path.parent), "backend_build": self.backend_build, "control_protocol": 4, "csrf": self.csrf,
                     "account": {"player": self.config.expected_player_name, "universe": self.config.server_number, "community": self.config.community},
                     "settings": self.settings(), "process": self.process_status(),
+                    "instructions": self.instruction_status(),
                     "catalog": {"building": [{"item": key, "name": value.name_es} for key, value in BUILD.items()],
                                 "research": [{"item": key, "name": value.name_es} for key, value in RESEARCH.items()]},
                     "scheduler": self.scheduler_status(), "snapshot": snapshot,
@@ -159,8 +174,7 @@ class PanelService:
     def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             process = self.process_status()
-            if process["owned_running"] or process["external_running"]:
-                raise PanelError("Detén el bot antes de guardar cambios. Se aplicarán en el próximo arranque.", 409)
+            active = process["owned_running"] or process["external_running"]
             expected = {"version", *EDITABLE}
             if set(payload) != expected or payload["version"] != self.settings()["version"]:
                 raise PanelError("La configuración cambió. Recarga el panel antes de guardar.", 409)
@@ -192,14 +206,17 @@ class PanelService:
                     handle.flush()
                     os.fsync(handle.fileno())
                 candidate = load_config(temporary)
+                if active:
+                    validate_live_change(self.config, candidate)
                 if hashlib.sha256(self.path.read_bytes()).hexdigest() != payload["version"]:
                     raise PanelError("La configuración cambió durante la validación. Recarga el panel.", 409)
                 backup = self.config.scheduler.status_file.parent / ("config-panel-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3) + ".yaml")
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 backup.write_bytes(self.path.read_bytes())
                 os.replace(temporary, self.path)
-                self.config = candidate
-                return {"message": "Configuración guardada. Se aplicará al iniciar el bot.", "settings": self.settings()}
+                self.config = load_config(self.path)
+                note = "Instrucciones guardadas. Se aplicarán al terminar la operación actual." if active else "Instrucciones guardadas. Se usarán al iniciar el bot."
+                return {"message": note, "settings": self.settings(), "instructions": self.instruction_status()}
             finally:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)

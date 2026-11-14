@@ -1,6 +1,10 @@
 """Entradas de una ejecución y modos continuos coordinados por el scheduler."""
 from __future__ import annotations
 
+import asyncio
+import logging
+from typing import Callable
+
 from .adapters.ogame.reader import OGameReader
 from .brain.service import Brain
 from .config import Config
@@ -15,14 +19,49 @@ from .observability.telegram import AlertDispatcher
 from .scanner.service import Scanner
 from .scheduler.runtime import BotRuntime
 from .storage.orders import OrderJournal
+from .core.panel_control import panel_stop_requested
+
+logger = logging.getLogger(__name__)
 
 
 async def run(config: Config, *, scan_once: bool = False, session_only: bool = False, scanner_only: bool = False, brain_once: bool = False, fleet_once: bool = False, defender_once: bool = False, defender_only: bool = False) -> None:
+    session: SessionManager | None = None
+
+    def observe(value: SessionManager) -> None:
+        nonlocal session
+        session = value
+
+    task = asyncio.create_task(_run(config, scan_once=scan_once, session_only=session_only, scanner_only=scanner_only, brain_once=brain_once, fleet_once=fleet_once, defender_once=defender_once, defender_only=defender_only, observer=observe))
+    try:
+        while not task.done():
+            await asyncio.wait({task}, timeout=0.2)
+            if panel_stop_requested(config.scheduler.status_file.with_name("panel_stop.json")):
+                if session is None or not session.transaction_active:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    logger.info("Bot detenido desde el panel; proceso y navegador liberados.")
+                    return
+        await task
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+async def _run(config: Config, *, scan_once: bool = False, session_only: bool = False, scanner_only: bool = False, brain_once: bool = False, fleet_once: bool = False, defender_once: bool = False, defender_only: bool = False, observer: Callable[[SessionManager], None] | None = None) -> None:
     flags = (scan_once, session_only, scanner_only, brain_once, fleet_once, defender_once, defender_only)
     if sum(bool(flag) for flag in flags) > 1:
         raise ValueError("Los modos de ejecución son excluyentes.")
     async with BrowserManager(config) as browser:
         session = SessionManager(browser.require_context(), config)
+        if observer is not None:
+            observer(session)
         journal: OrderJournal | None = None
         alerts: AlertDispatcher | None = None
         try:
@@ -32,7 +71,7 @@ async def run(config: Config, *, scan_once: bool = False, session_only: bool = F
                 journal = OrderJournal.open_for_account(config.brain.journal_file, config.server_origin + "|" + config.expected_player_name)
             full_mode = not any(flags)
             defender = None
-            if journal is not None and (defender_once or defender_only or (full_mode and config.defender.enabled)):
+            if journal is not None and (defender_once or defender_only or full_mode):
                 alerts = AlertDispatcher(config.telegram)
                 defender = Defender(session, config, journal, alerts)
             if defender_once or (defender_only and not config.defender.enabled):

@@ -38,6 +38,7 @@ class SessionManager:
         self.authentication_generation = 0
         self.before_navigation: Callable[[], Awaitable[None]] | None = None
         self._closed = False
+        self.transaction_active = False
         context.on("close", self._on_close)
 
     def _on_close(self, *_: object) -> None:
@@ -213,7 +214,11 @@ class SessionManager:
                     raise LoginRequired("La sesión ha dejado de estar autenticada.")
                 if parse_qs(urlsplit(self.page.url).query).get("component") != [component]:
                     raise ReadError("El servidor no mostró el componente solicitado.")
-                yield self.page
+                self.transaction_active = True
+                try:
+                    yield self.page
+                finally:
+                    self.transaction_active = False
             except Error as error:
                 if self._closed:
                     raise BrowserClosed("Navegador cerrado durante la lectura.") from None

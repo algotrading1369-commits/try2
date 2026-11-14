@@ -6,6 +6,10 @@ el lanzador busca otro puerto local y abre la dirección correcta. Solo reutiliz
 un servicio con la misma versión de código; un panel antiguo no impide abrir
 el nuevo. Recarga la página tras actualizar el código.
 
+`Abrir_bot.bat` abre también el panel como punto de entrada habitual. El
+encabezado muestra **Control v4** y la carpeta de instalación. Usa esa pestaña;
+las pestañas anteriores pueden seguir conectadas a un servicio antiguo.
+
 ## Pestañas
 
 - Construcción: cola de objetivos reordenable o selección inteligente por ROI
@@ -25,12 +29,22 @@ el nuevo. Recarga la página tras actualizar el código.
 - Registros: mensajes y filtros; cada módulo muestra también su último informe.
 
 Los controles guardan la configuración real, validan el documento completo y
-conservan una copia anterior en `runtime/config-panel-*.yaml`. El bot debe estar
-detenido. Los cambios se aplican al próximo arranque. Los IDs de planeta se ven
+conservan una copia anterior en `runtime/config-panel-*.yaml`. Puedes guardar
+con el bot activo: las instrucciones se aplican al terminar la operación actual,
+sin cerrar el navegador ni repetir órdenes pendientes. El panel muestra si están
+guardadas, pendientes, aplicadas o rechazadas. La confirmación incluye la versión
+exacta y la identidad del proceso que la leyó. Los IDs de planeta se ven
 en los informes del scanner; las listas de IDs se separan con comas.
 
 La cuenta, rutas del perfil y credenciales no se editan aquí. Telegram usa las
 variables de entorno ya configuradas en el bot.
+
+Cambiar el canal, la visibilidad o el idioma del navegador requiere reiniciar;
+esas opciones se bloquean durante la ejecución. Las prioridades, objetivos,
+reservas, intervalos y habilitación de módulos se recargan en marcha. Un modo
+«Solo scanner» sigue leyendo únicamente aunque guardes objetivos de construcción.
+Las instrucciones guardadas durante el acceso se aplican al entrar en el bucle
+de trabajo después de autenticar la sesión.
 
 ## Modos y recursos reales
 
@@ -54,6 +68,10 @@ La parada funciona también para un bot abierto mediante BAT o después de
 reiniciar el panel. Se comprueba PID y fecha de creación del proceso, y se envía
 una solicitud con token. El bot termina en un punto de control al finalizar la
 operación actual; no se mata ningún proceso del sistema.
+
+Un monitor independiente revisa la parada también durante el arranque y las
+reconexiones. No interrumpe una transacción de construcción o envío en curso;
+espera a que finalice y deja intacto el historial de órdenes.
 
 En Windows se dirige la solicitud al intérprete registrado, que puede tener
 un PID distinto al lanzador de Python. Las esperas de reconexión comprueban
