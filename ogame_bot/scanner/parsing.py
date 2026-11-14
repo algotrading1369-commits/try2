@@ -15,6 +15,21 @@ RESEARCH = {106: "espionage_technology", 108: "computer_technology", 109: "weapo
 SHIPS = {202: "small_cargo", 203: "large_cargo", 204: "light_fighter", 205: "heavy_fighter", 206: "cruiser", 207: "battleship", 208: "colony_ship", 209: "recycler", 210: "espionage_probe", 211: "bomber", 213: "destroyer", 214: "deathstar", 215: "battlecruiser", 218: "reaper", 219: "pathfinder"}
 
 
+def planet_temperature(document: Document) -> Reading[dict[str, int]]:
+    """Read only an explicit, unambiguous Spanish temperature range."""
+    panels = document.by_id("planetdata")
+    if len(panels) != 1:
+        return Reading.unavailable("temperature_panel_missing_or_duplicate")
+    text = panels[0].text.replace("−", "-")
+    values = re.findall(r"Temperatura\s*:?\s*(?:de|entre)?\s*(-?\d+)\s*°\s*C\s*(?:a|y|hasta)\s*(-?\d+)\s*°\s*C", text, re.IGNORECASE)
+    if len(values) != 1:
+        return Reading.unavailable("temperature_range_unknown")
+    minimum, maximum = map(int, values[0])
+    if not -273 <= minimum <= maximum <= 200:
+        return Reading.unavailable("temperature_range_invalid")
+    return Reading({"minimum": minimum, "maximum": maximum}, utc_now(), "complete")
+
+
 def parse_integer(text: str, *, signed: bool = False) -> int | None:
     """Números enteros ES exactos. Las abreviaturas 1,2 M no se convierten."""
     text = text.strip().replace("−", "-").replace("\u00a0", " ").replace("\u202f", " ")

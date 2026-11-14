@@ -90,7 +90,7 @@ class Planner:
     def _solar(self, body: BodySnapshot, reason: str) -> Upgrade | None:
         solar = level(body.buildings, "solar_plant", self.max_age)
         if not self.settings.auto_solar or solar is None or solar >= self.settings.max_solar_level:
-            self.note(body.body.id, "solar_unavailable_or_at_limit")
+            self.note(body.body.id, "automatic_solar_disabled" if not self.settings.auto_solar else "solar_unavailable_or_at_limit")
             return None
         return self._upgrade(body, "solar_plant", solar, reason)
 
@@ -126,9 +126,13 @@ class Planner:
             temperature_factor = 1.0
             if resource == "deuterium":
                 temperature = settings.temperatures.get(body.body.id)
+                if temperature is None and body.temperature.status == "complete":
+                    # A verified planet's temperature is a stable property,
+                    # unlike its resources and queues; no extra navigation.
+                    temperature = (body.temperature.data or {}).get("maximum")
                 if temperature is None:
                     self.note(body.body.id, "roi_temperature_unknown")
-                    return None
+                    continue
                 temperature_factor = 1.44 - 0.004 * temperature
             if settings.economy_speed is None:
                 self.note(body.body.id, "roi_economy_speed_unknown")
@@ -140,7 +144,7 @@ class Planner:
             solar = level(body.buildings, "solar_plant", self.max_age)
             if needs_solar:
                 if not settings.auto_solar or solar is None:
-                    self.note(body.body.id, "roi_solar_unknown")
+                    self.note(body.body.id, "automatic_solar_disabled" if not settings.auto_solar else "roi_solar_unknown")
                     continue
                 next_solar = solar
                 while deficit > 0 and next_solar < settings.max_solar_level:

@@ -50,6 +50,7 @@ class QuietRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.session.check = AsyncMock()
         self.journal = MagicMock()
         self.journal.pending.return_value = None
+        self.journal.pending_upgrades.return_value = []
         self.runtime = BotRuntime(self.config, self.session, self.journal, None)
         self.runtime.scanner.scan = AsyncMock(return_value=snapshot())
         self.runtime.scanner.refresh_economy = AsyncMock(return_value=snapshot())
@@ -80,8 +81,7 @@ class QuietRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.brain.process.return_value = {'result': {'state':'pending'}, 'notes': []}
         self.journal.pending.return_value = ('order', MagicMock())
         await self.runtime._brain()
-        self.assertEqual(self.runtime._brain_ready(), 'waiting_for_completion')
-        self.assertGreater(self.runtime.scheduler.jobs['reconcile'].next_due - self.runtime.scheduler.clock(), 590)
+        self.assertIsNone(self.runtime._brain_ready())
 
     async def test_session_job_observes_without_refreshing(self):
         await self.runtime._session()
@@ -98,7 +98,7 @@ class QuietRuntimeTests(unittest.IsolatedAsyncioTestCase):
         state.bodies[0].buildings.data['solar_plant'] = 6
         self.runtime.latest = state
         action = Upgrade('building','solar_plant',101,'1:200:8',5,6,BUILD['solar_plant'].cost(6),'energy_deficit')
-        self.journal.pending.return_value = ('order',action)
+        self.journal.pending_upgrades.return_value = [('order',action)]
         self.runtime._confirm_snapshot_upgrade()
         self.journal.mark.assert_called_once_with('order','confirmed')
 

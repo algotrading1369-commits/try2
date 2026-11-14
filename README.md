@@ -1,10 +1,10 @@
 # OGame Bot — proyecto modular Python
 
-> Preparación de sonda: `probe_bootstrap_live: true` permite gastar recursos normales solo en sus requisitos y una unidad, aunque las flotas sigan en simulación. Está desactivado por defecto en la plantilla. Ver [SONDA.md](SONDA.md).
-
 Implementación independiente del prototipo de la carpeta superior. Python 3.11+.
 No comparte su perfil ni cambia los archivos de estado del prototipo anterior.
 Mejoras y envíos parten en simulación; la ejecución real depende de dry_run.
+La excepción explícita `probe_bootstrap_live: true` habilita solo los requisitos
+y una sonda, manteniendo las flotas en simulación. Véase [SONDA.md](SONDA.md).
 El acceso inicial y la entrada desde el Lobby al universo
 son manuales; la recuperación reutiliza las cookies del perfil dedicado.
 
@@ -553,6 +553,27 @@ perfil distinta de la cuenta principal y conservar dry_run durante la validació
 
 ## Pruebas locales sin cuenta
 
+### Continuidad de construcción e investigación
+
+El constructor y la investigación usan registros pendientes independientes: una
+investigación no bloquea la cola de edificios. Cada envío se registra antes del
+clic, se vuelve a leer la economía y se evalúa la otra cola con los recursos
+restantes. Al finalizar una mejora, se confirma su nivel antes de decidir la
+siguiente. Cambiar entre prioridad y ROI en el panel solicita una lectura nueva
+sin reiniciar la sesión. Los registros anteriores se migran sin borrar órdenes.
+
+El panel admite ratios de intercambio, por ejemplo 2.5:1.5:1. El YAML mantiene
+`resource_weights` como valores relativos: el ejemplo equivale a metal=1,
+cristal=1.6666666667 y deuterio=2.5. La temperatura puede leerse de un rango
+explícito en Visión general o fijarse manualmente. Si falta, ROI excluye el
+deuterio y sigue comparando las minas verificadas, indicando la limitación.
+Si la solar automática está desactivada y falta energía, se muestra el bloqueo.
+
+La prueba `test_autonomous_economy.py` encadena ocho órdenes por estrategia con
+juego simulado y planificador, ejecutor, journal y scheduler reales; verifica
+recursos restantes, colas independientes y ausencia de navegación durante las
+esperas. No sustituye una prueba prolongada en el servidor real.
+
 ```powershell
 ..\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
@@ -581,16 +602,5 @@ Este runner está disponible para reproducir la verificación:
 ```
 
 La configuración también se validó con la entrada real --check-config.
-Se inspeccionaron manualmente las páginas reales de flota, recursos e investigación
-de OGame ES 13.1.0-r5. El adaptador admite el indicador `#attack_alert.noAttack`,
-el aviso explícito de planeta sin naves y las colas vacías dentro de
-`#productionboxbuildingcomponent` y `#productionboxresearchcomponent`.
-Las regresiones usan fragmentos mínimos sin scripts ni datos de la cuenta.
-Esto no valida envíos, la reacción automática ante ataques ni funcionamiento prolongado.
-También se inspeccionó un ataque entrante real: el listado se abre con
-`#js_eventDetailsClosed`; sus filas `eventFleet` incluyen misión, sentido y
-hora de llegada. El icono `figure.planetIcon.planet` dentro de `destFleet`
-identifica el destino como planeta. El adaptador conserva como desconocidos
-los tipos ausentes o contradictorios. Esta inspección y sus regresiones no
-equivalen a una evacuación automática validada.
-Tras actualizar, ejecutar primero en simulación y comprobar los nuevos registros.
+El acceso real al Lobby, la persistencia real de cookies y los selectores
+actuales de Gameforge siguen pendientes de validación con navegador.

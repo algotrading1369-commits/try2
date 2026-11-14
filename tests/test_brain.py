@@ -130,7 +130,10 @@ class PlannerTests(unittest.TestCase):
 
     def test_roi_requires_temperature_for_configured_deuterium(self) -> None:
         settings = replace(self.settings, strategy="roi", economy_speed=8)
-        self.assertEqual(Planner(settings, 120).plan(snapshot()), [])
+        planner = Planner(settings, 120)
+        actions = planner.plan(snapshot())
+        self.assertIn(actions[0].item, {"metal_mine", "crystal_mine"})
+        self.assertIn("roi_temperature_unknown", [note["reason"] for note in planner.notes])
 
     def test_roi_includes_solar_in_payback(self) -> None:
         settings = replace(self.settings, strategy="roi", economy_speed=8, temperatures={101: 40}, build_goals=(Goal("metal_mine", 30),), max_payback_days=10000)

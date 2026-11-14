@@ -58,6 +58,8 @@ class PanelService:
         digest = hashlib.sha256()
         for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "scheduler/waiting.py", "scanner/service.py", "scanner/parsing.py", "core/panel_control.py", "core/session.py", "core/browser.py", "core/action_executor.py", "brain/service.py", "brain/settings.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
             digest.update((project / relative).read_bytes())
+        for relative in ("brain/planner.py", "storage/orders.py", "domain/models.py"):
+            digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
         self.control_token: str | None = None

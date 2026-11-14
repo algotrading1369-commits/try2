@@ -40,6 +40,7 @@ class BotRuntime:
         self._snapshot_finished = float("-inf")
         self._read_requested = True
         self._full_scan_requested = False
+        self._order_due: dict[str, float] = {}
         self.scheduler = Scheduler(config.scheduler, watchdog=self._watchdog, on_recoverable=self._recoverable, on_idle=self._reload_instructions)
         self.scanner = Scanner(OGameReader(session), config)
         self.upgrades = ActionExecutor(session, config, journal) if journal is not None else None
@@ -107,7 +108,7 @@ class BotRuntime:
                 reset.add("defender")
             if previous.brain != candidate.brain:
                 reset.update({"brain", "scanner"})
-                self._read_requested = self.journal is None or self.journal.pending("upgrade") is None
+                self._read_requested = True
             if previous.fleet != candidate.fleet:
                 reset.add("fleet")
             self.config = candidate
@@ -144,7 +145,7 @@ class BotRuntime:
     def _brain_ready(self) -> str | None:
         if reason := self._routine_ready():
             return reason
-        return "waiting_for_completion" if self.journal is not None and self.journal.pending("upgrade") is not None else None
+        return None
 
     def _routine_ready(self) -> str | None:
         if reason := self._session_ready():
@@ -201,14 +202,22 @@ class BotRuntime:
         self._full_scan_requested = False
         self._snapshot_finished = self.scheduler.clock()
         self._confirm_snapshot_upgrade()
+        if self.journal is not None:
+            for identifier, action in self.journal.pending_upgrades():
+                queue = self.latest.research_queue if action.kind == "research" else next((body.construction_queue for body in self.latest.bodies if body.body.id == action.body_id), None)
+                delay = seconds_until((queue.data or {}).get("ends_at")) if queue else None
+                if delay is not None or self._order_due.get(identifier, 0) <= self.scheduler.clock():
+                    self._order_due[identifier] = self.scheduler.clock() + max(5.0, delay or self.config.brain.idle_retry_seconds)
+            self._schedule_reconciliation()
 
     def _confirm_snapshot_upgrade(self) -> None:
         if self.latest is None or self.journal is None:
             return
-        pending = self.journal.pending("upgrade")
-        if pending is None or not isinstance(pending[1], Upgrade):
-            return
-        identifier, action = pending
+        for identifier, action in self.journal.pending_upgrades():
+            self._confirm_snapshot_order(identifier, action)
+
+    def _confirm_snapshot_order(self, identifier: str, action: Upgrade) -> None:
+        assert self.latest is not None and self.journal is not None
         snapshot = self.latest
         if snapshot.player != self.config.expected_player_name or snapshot.server != self.config.server_origin:
             return
@@ -219,11 +228,12 @@ class BotRuntime:
         value = (reading.data or {}).get(action.item)
         if reading.is_fresh(self.config.scanner_max_reading_age_seconds) and type(value) is int and value >= action.target_level:
             self.journal.mark(identifier, "confirmed")
+            self._order_due.pop(identifier, None)
             logger.info("Orden confirmada en la lectura existente: %s, nivel %s.", action.item, action.target_level)
             self.scheduler.trigger("brain")
 
     async def _fresh_snapshot(self) -> AccountSnapshot:
-        if self.latest is None or self.scheduler.clock() - self._snapshot_finished > self.config.scanner_max_reading_age_seconds:
+        if self.latest is None or self._read_requested or self.scheduler.clock() - self._snapshot_finished > self.config.scanner_max_reading_age_seconds:
             self._read_requested = True
             await self.scheduler.run_now("scanner")
         if self.latest is None:
@@ -235,11 +245,19 @@ class BotRuntime:
             snapshot = await self._fresh_snapshot()
             report = await self.brain.process(snapshot)
             delay, reason = next_economic_check(self.config, snapshot, report)
+            result = report.get("result", {})
+            if result.get("state") == "pending" and result.get("order_id"):
+                self._order_due[result["order_id"]] = self.scheduler.clock() + delay
             report["next_check_seconds"], report["waiting_reason"] = delay, reason
             save_snapshot(self.config.brain.plan_file, report)
             self.scheduler.defer("brain", delay, reason)
-            if self.journal is not None and self.journal.pending("upgrade") is not None:
-                self.scheduler.defer("reconcile", delay, reason)
+            self._schedule_reconciliation()
+            if result.get("state") == "pending":
+                # Refresh the spent resources and evaluate the other game queue.
+                # The journal filters this queue even if its DOM still says free.
+                self._read_requested = True
+                self.scheduler.trigger("scanner")
+                self.scheduler.trigger("brain")
             logger.info("Espera económica: %.0f segundos; motivo: %s.", delay, reason)
 
     async def _fleets(self) -> None:
@@ -250,17 +268,32 @@ class BotRuntime:
             await self.fleet.process(await self._fresh_snapshot())
 
     async def _reconcile(self) -> None:
-        if self.upgrades is not None and self.journal is not None and self.journal.pending("upgrade") is not None:
-            result = await self.upgrades.reconcile()
-            if result.get("state") == "confirmed":
-                self._read_requested = True
-                self.scheduler.trigger("scanner")
-                self.scheduler.trigger("brain")
-            else:
-                delay = max(30.0, seconds_until(result.get("retry_at")) or self.config.brain.idle_retry_seconds)
-                self.scheduler.defer("reconcile", delay, "waiting_for_completion")
+        if self.upgrades is not None and self.journal is not None:
+            # A due completion causes one economy read, which confirms ALL
+            # completed queues and refreshes resources before choosing again.
+            due = [order for order in self.journal.pending_upgrades() if self._order_due.get(order[0], 0) <= self.scheduler.clock()]
+            if due:
+                if "scanner" in self.scheduler.jobs:
+                    self._read_requested = True
+                    self.scheduler.trigger("scanner")
+                    self.scheduler.trigger("brain")
+                    for identifier, _ in due:
+                        self._order_due[identifier] = self.scheduler.clock() + self.config.brain.idle_retry_seconds
+                else:
+                    for identifier, action in due:
+                        result = await self.upgrades.reconcile((identifier, action))
+                        self._order_due[identifier] = self.scheduler.clock() + max(30.0, seconds_until(result.get("retry_at")) or self.config.brain.idle_retry_seconds)
+            self._schedule_reconciliation()
         if self.fleet_executor is not None and self.journal is not None and self.journal.pending("fleet") is not None:
             await self.fleet_executor.reconcile()
+
+    def _schedule_reconciliation(self) -> None:
+        if self.journal is None:
+            return
+        orders = self.journal.pending_upgrades()
+        if orders and "reconcile" in self.scheduler.jobs:
+            delay = min(max(0.01, self._order_due.get(identifier, self.scheduler.clock()) - self.scheduler.clock()) for identifier, _ in orders)
+            self.scheduler.defer("reconcile", delay, "waiting_for_completion")
 
     async def run(self) -> None:
         previous = self.session.before_navigation

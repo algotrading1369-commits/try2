@@ -41,12 +41,14 @@ class Brain:
         settings = effective_brain_settings(self.config.brain, probe_completed=completed)
         self.planner.settings = settings
         actions = self.planner.plan(snapshot)
-        selected = self.select(actions)
+        available = [action for action in actions if self.journal.pending_for(action) is None]
+        selected = self.select(available)
         report: dict[str, Any] = {
             "schema_version": 1, "created_at": utc_now(), "dry_run": not uses_real_resources(selected, settings) if selected is not None else settings.dry_run and not (settings.probe_bootstrap_live if settings.probe_target else settings.economic_live),
             "cost_model": "classic_without_discounts", "roi_model": "estimated_full_production",
             "actions": [action.to_dict() for action in actions], "notes": self.planner.notes,
             "selected": selected.to_dict() if selected else None,
+            "ready_queues": len(available),
             "result": {"state": "planned"},
         }
         report["probe_bootstrap_live"] = settings.probe_bootstrap_live
@@ -54,10 +56,8 @@ class Brain:
         report["automation_mode"] = "probe" if settings.probe_target else "routine"
         # Una propuesta queda guardada incluso si el proceso se interrumpe al ejecutar.
         save_snapshot(self.config.brain.plan_file, report)
-        if self.journal.pending("upgrade") is not None:
-            report["result"] = await self.executor.reconcile()
-        elif selected is None:
-            report["result"] = {"state": "no_action"}
+        if selected is None:
+            report["result"] = {"state": "no_action", "pending_orders": len(self.journal.pending_upgrades())}
         else:
             report["result"] = await self.executor.execute(selected)
         save_snapshot(self.config.brain.plan_file, report)

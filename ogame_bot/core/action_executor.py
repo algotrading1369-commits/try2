@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import asyncio
 import logging
 from playwright.async_api import Error
 
@@ -69,8 +70,8 @@ class ActionExecutor:
         self.config = config
         self.journal = journal
 
-    async def reconcile(self) -> dict[str, Any]:
-        pending = self.journal.pending("upgrade")
+    async def reconcile(self, pending: tuple[str, Upgrade] | None = None) -> dict[str, Any]:
+        pending = pending or self.journal.pending("upgrade")
         if pending is None:
             return {"state": "no_pending_order"}
         identifier, upgrade = pending
@@ -94,8 +95,9 @@ class ActionExecutor:
     async def execute(self, upgrade: Upgrade) -> dict[str, Any]:
         # Valida también llamadas que no provengan directamente del planificador.
         Upgrade.from_dict(upgrade.to_dict())
-        if self.journal.pending("upgrade") is not None:
-            return await self.reconcile()
+        pending = self.journal.pending_for(upgrade)
+        if pending is not None:
+            return await self.reconcile(pending)
         configured = self.config.brain
         completed = bool(configured.probe_body_id and self.journal.probe_completed(configured.probe_body_id))
         if upgrade.kind == "shipyard" and completed:
@@ -163,7 +165,14 @@ class ActionExecutor:
                 raise
             # La aceptación de un clic no acredita el nivel. La próxima lectura reconcilia.
             try:
-                queue = parsing.queue_state(Document(await page.content()), research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
+                # The click can return before the AJAX production panel changes.
+                # Observe the DOM locally; never repeat the click or navigate here.
+                for attempt in range(7):
+                    queue = parsing.queue_state(Document(await page.content()), research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
+                    if (queue.data or {}).get("state") == "busy":
+                        break
+                    if attempt < 6:
+                        await asyncio.sleep(0.25)
                 retry_at = (queue.data or {}).get("ends_at")
             except Error:
                 retry_at = None

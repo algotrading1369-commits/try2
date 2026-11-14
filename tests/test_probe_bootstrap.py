@@ -177,7 +177,7 @@ class BootstrapExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["selected"]["item"], "metal_mine")
         self.assertFalse(report["dry_run"])
         self.sender.click.assert_awaited_once()
-        self.assertEqual((await ActionExecutor(self.session, cfg, self.journal).execute(probe_order()))["state"], "pending")
+        self.assertEqual((await ActionExecutor(self.session, cfg, self.journal).execute(probe_order()))["state"], "completed")
         self.sender.click.assert_awaited_once()
 
     async def test_uncertain_build_is_not_clicked_again(self):

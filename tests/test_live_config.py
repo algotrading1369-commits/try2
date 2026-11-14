@@ -69,6 +69,15 @@ class InstructionTests(unittest.TestCase):
         report = json.loads(self.config.scheduler.status_file.with_name("config_status.json").read_text())
         self.assertEqual(report["state"], "rejected")
 
+    def test_mode_change_requests_read_even_with_research_pending(self) -> None:
+        self.runtime.latest = MagicMock()
+        self.runtime._read_requested = False
+        self.journal.pending.return_value = ('research-order', MagicMock())
+        self.edit()
+        self.runtime._reload_instructions()
+        self.assertTrue(self.runtime._read_requested)
+        self.assertEqual(self.runtime.config.brain.strategy, 'priority')
+
     def test_startup_with_newer_saved_file_does_not_falsely_acknowledge_old_values(self) -> None:
         self.edit()
         runtime = BotRuntime(self.config, self.session, self.journal, None)

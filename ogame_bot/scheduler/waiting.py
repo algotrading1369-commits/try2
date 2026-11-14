@@ -51,6 +51,8 @@ def next_economic_check(config: Config, snapshot: AccountSnapshot, report: dict[
                 continue
             level = (body.buildings.data or {}).get(mine)
             temperature = config.brain.temperatures.get(body.body.id)
+            if temperature is None and body.temperature.status == "complete":
+                temperature = (body.temperature.data or {}).get("maximum")
             if type(level) is not int or (resource == "deuterium" and temperature is None):
                 delays = []
                 break

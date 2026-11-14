@@ -214,6 +214,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.session.observe = AsyncMock()
         self.journal = MagicMock()
         self.journal.pending.return_value = None
+        self.journal.pending_upgrades.return_value = []
         self.defender = MagicMock()
         self.defender.last_state = "clear"
         async def defend(): self.session.defense_paused = False

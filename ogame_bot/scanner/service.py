@@ -33,6 +33,7 @@ class Scanner:
         body_id = snapshot.body.id
         overview = await self._document("overview", body_id)
         snapshot.resources = parsing.resources(overview) if overview else Reading.unavailable("overview_read_failed")
+        snapshot.temperature = parsing.planet_temperature(overview) if overview else Reading.unavailable("overview_read_failed")
         if snapshot.body.kind == "planet":
             supplies = await self._document("supplies", body_id)
             snapshot.buildings = parsing.technologies(supplies, parsing.BUILDINGS) if supplies else Reading.unavailable("supplies_read_failed")
@@ -76,6 +77,7 @@ class Scanner:
             final_overview = await self._document("overview", expand_events=True)
             if final_overview is not None:
                 snapshot.movements = parsing.movements(final_overview)
+                self._update_visible_resources(snapshot, final_overview)
             else:
                 snapshot.movements = Reading.unavailable("final_movements_read_failed")
             completed = True
@@ -111,7 +113,16 @@ class Scanner:
             snapshot.research = parsing.technologies(final_document, parsing.RESEARCH) if final_document else Reading.unavailable("research_read_failed")
             snapshot.research_queue = parsing.queue_state(final_document, research=True) if final_document else Reading.unavailable("research_queue_read_failed")
         snapshot.movements = parsing.movements(final_document) if final_document else Reading.unavailable("economy_movements_read_failed")
+        if final_document is not None:
+            self._update_visible_resources(snapshot, final_document)
         snapshot.finished_at = utc_now()
         save_snapshot(self.config.scanner_output_file, snapshot.to_dict())
         logger.info("Lectura económica actualizada: %s planetas; sin recorrido de flotas.", len(planets))
         return snapshot
+
+    @staticmethod
+    def _update_visible_resources(snapshot: AccountSnapshot, document: Document) -> None:
+        body_id = parsing.current_body_id(document)
+        body = next((body for body in snapshot.bodies if body.body.id == body_id), None)
+        if body is not None:
+            body.resources = parsing.resources(document)

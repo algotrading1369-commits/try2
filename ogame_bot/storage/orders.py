@@ -59,6 +59,14 @@ class OrderJournal:
             if "scope" not in {column[1] for column in self.connection.execute("PRAGMA table_info(orders)")}:
                 self.connection.execute("ALTER TABLE orders ADD COLUMN scope TEXT NOT NULL DEFAULT 'upgrade'")
             self.connection.execute("DROP INDEX IF EXISTS one_active_order")
+            # Older releases serialized all economic queues under 'upgrade'.
+            # Preserve every receipt while separating the actual game queues.
+            for order in self.connection.execute("SELECT id, action FROM orders WHERE scope='upgrade'").fetchall():
+                try:
+                    action = Upgrade.from_dict(json.loads(order["action"]))
+                except (ValueError, TypeError, KeyError) as error:
+                    raise CoreError("Invalid economic journal; review pending orders before continuing.") from error
+                self.connection.execute("UPDATE orders SET scope=? WHERE id=?", (self.upgrade_scope(action), order["id"]))
             self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_per_scope ON orders (scope) WHERE state IN ('prepared', 'submitted', 'uncertain')")
             self.connection.commit()
         except BaseException:
@@ -68,9 +76,26 @@ class OrderJournal:
     def close(self) -> None:
         self.connection.close()
 
+    @staticmethod
+    def upgrade_scope(action: Upgrade) -> str:
+        return "upgrade:research" if action.kind == "research" else f"upgrade:{action.kind}:{action.body_id}"
+
+    def pending_upgrades(self) -> list[tuple[str, Upgrade]]:
+        rows = self.connection.execute("SELECT id, action FROM orders WHERE state IN ('prepared', 'submitted', 'uncertain') AND scope LIKE 'upgrade:%' ORDER BY created_at, rowid")
+        try:
+            return [(row["id"], Upgrade.from_dict(json.loads(row["action"]))) for row in rows]
+        except (ValueError, TypeError, KeyError) as error:
+            raise CoreError("Invalid pending economic order; no new orders will be sent.") from error
+
+    def pending_for(self, action: Upgrade) -> tuple[str, Upgrade] | None:
+        scope = self.upgrade_scope(action)
+        return next((order for order in self.pending_upgrades() if self.upgrade_scope(order[1]) == scope), None)
+
     def pending(self, scope: str | None = None) -> tuple[str, Upgrade | Flight] | None:
         if scope not in {None, "upgrade", "fleet"}:
             raise ValueError("Categoría de orden inválida.")
+        if scope == "upgrade":
+            return next(iter(self.pending_upgrades()), None)
         row = self.connection.execute("SELECT id, action FROM orders WHERE state IN ('prepared', 'submitted', 'uncertain') AND (? IS NULL OR scope=?) ORDER BY created_at, rowid LIMIT 1", (scope, scope)).fetchone()
         if row is None:
             return None
@@ -85,7 +110,7 @@ class OrderJournal:
         now = utc_now()
         try:
             with self.connection:
-                self.connection.execute("INSERT INTO orders (id, created_at, updated_at, state, action, scope) VALUES (?, ?, ?, 'prepared', ?, ?)", (identifier, now, now, json.dumps(upgrade.to_dict(), ensure_ascii=False), "fleet" if isinstance(upgrade, Flight) else "upgrade"))
+                self.connection.execute("INSERT INTO orders (id, created_at, updated_at, state, action, scope) VALUES (?, ?, ?, 'prepared', ?, ?)", (identifier, now, now, json.dumps(upgrade.to_dict(), ensure_ascii=False), "fleet" if isinstance(upgrade, Flight) else self.upgrade_scope(upgrade)))
         except sqlite3.IntegrityError as error:
             raise CoreError("Ya existe una orden pendiente de reconciliar.") from error
         return identifier
@@ -103,11 +128,11 @@ class OrderJournal:
                 raise CoreError("No se pudo actualizar la orden pendiente.")
 
     def last_completed_kind(self) -> str | None:
-        row = self.connection.execute("SELECT action FROM orders WHERE state='confirmed' AND scope='upgrade' ORDER BY updated_at DESC, rowid DESC LIMIT 1").fetchone()
+        row = self.connection.execute("SELECT action FROM orders WHERE state='confirmed' AND scope LIKE 'upgrade:%' ORDER BY updated_at DESC, rowid DESC LIMIT 1").fetchone()
         return json.loads(row[0])["kind"] if row is not None else None
 
     def probe_completed(self, body_id: int) -> bool:
-        rows = self.connection.execute("SELECT action FROM orders WHERE state='confirmed' AND scope='upgrade' ORDER BY updated_at DESC, rowid DESC")
+        rows = self.connection.execute("SELECT action FROM orders WHERE state='confirmed' AND scope LIKE 'upgrade:%' ORDER BY updated_at DESC, rowid DESC")
         try:
             for row in rows:
                 action = json.loads(row[0])
