@@ -183,6 +183,18 @@ class SessionManager:
             self._check_open()
             await self._recover()
 
+    async def observe(self) -> None:
+        """Inspect the current DOM without refreshing a healthy game tab.
+
+        This is not proof of a live server session. The next actual operation
+        still performs its normal authentication and identity checks.
+        """
+        async with self.action_lock:
+            self._check_open()
+            if self.state == SessionState.READY and self.page is not None and await self._identity(self.page):
+                return
+            await self._recover()
+
     @asynccontextmanager
     async def read_page(self, component: str, body_id: int | None = None, *, galaxy: int | None = None, system: int | None = None) -> AsyncIterator[Page]:
         """Navegación de lectura exclusiva; verifica identidad y componente tras cargar."""

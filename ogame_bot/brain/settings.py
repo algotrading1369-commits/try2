@@ -41,6 +41,7 @@ class BrainSettings:
     probe_body_id: int | None = None
     probe_bootstrap_live: bool = False
     economic_live: bool = False
+    idle_retry_seconds: float = 600
 
 
 def effective_brain_settings(settings: BrainSettings, *, probe_completed: bool) -> BrainSettings:
@@ -55,7 +56,7 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         "research": {"enabled", "priorities"},
     }
     for section, keys in expected.items():
-        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live", "economic_live"} if section == "automation" else set()
+        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live", "economic_live", "idle_retry_seconds"} if section == "automation" else set()
         if not isinstance(raw.get(section), dict) or not keys <= set(raw[section]) or set(raw[section]) - keys - optional:
             raise ConfigurationError(f"Campos incorrectos en {section}.")
 
@@ -146,4 +147,5 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         economy_speed=speed, resource_weights=mapping("resource_weights"),
         production_multipliers=mapping("production_multipliers"), temperatures=temperatures,
         probe_target=probe_target, probe_body_id=probe_body, probe_bootstrap_live=probe_live, economic_live=economic_live,
+        idle_retry_seconds=number(raw["automation"].get("idle_retry_seconds", 600), "idle_retry_seconds", 30),
     )

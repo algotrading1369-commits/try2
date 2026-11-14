@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlsplit
 
@@ -237,10 +237,43 @@ def queue_state(document: Document, *, research: bool = False, shipyard: bool = 
         if panel is None:
             return Reading.unavailable("queue_panel_missing_or_duplicate")
     empty_phrases = {"No se están construyendo naves o defensas."} if shipyard else {"No hay ninguna investigación en progreso en este momento."} if research else {"No hay edificios en construcción", "No hay edificios en construcción."}
-    if panel.find(lambda node: node.has_class("countDown") or node.attrs.get("id") in {"buildingCountdown", "researchCountdown"}):
-        return Reading({"state": "busy"}, utc_now(), "complete")
+    timers = panel.find(lambda node: node.has_class("countDown") or node.has_class("countdown") or node.attrs.get("id") in {"buildingCountdown", "researchCountdown"})
+    if timers:
+        data = {"state": "busy"}
+        ends = queue_end_time(panel)
+        if ends is not None:
+            data["ends_at"] = ends.isoformat()
+        return Reading(data, utc_now(), "complete")
     idle_nodes = panel.find(lambda node: node.tag == "td" and node.has_class("idle"))
     explicit_idle = len(idle_nodes) == 1 and any(phrase in idle_nodes[0].text for phrase in empty_phrases)
     if panel.text.strip() in empty_phrases or ((scoped or shipyard) and explicit_idle):
         return Reading({"state": "free"}, utc_now(), "complete")
     return Reading.unavailable("queue_state_unknown")
+
+
+def queue_end_time(panel: Node) -> datetime | None:
+    """Accept explicit epoch end attributes or an unambiguous timer text."""
+    now = datetime.now(timezone.utc)
+    candidates: set[datetime] = set()
+    for node in panel.walk():
+        for key in ("data-end", "data-endtime", "data-end-time", "data-end-timestamp"):
+            raw = node.attrs.get(key, "")
+            if raw.isascii() and raw.isdecimal():
+                try:
+                    stamp = int(raw)
+                    end = datetime.fromtimestamp(stamp / 1000 if stamp > 10**12 else stamp, timezone.utc)
+                    if now - timedelta(seconds=5) <= end <= now + timedelta(days=366):
+                        candidates.add(end)
+                except (ValueError, OverflowError, OSError):
+                    pass
+        if node.has_class("countDown") or node.has_class("countdown") or node.attrs.get("id") in {"buildingCountdown", "researchCountdown"}:
+            match = re.fullmatch(r"(?:(\d+):)?([0-5]?\d):([0-5]\d)", node.text.strip())
+            if match:
+                hours, minutes, seconds = (int(value or 0) for value in match.groups())
+                candidates.add(now + timedelta(hours=hours, minutes=minutes, seconds=seconds))
+    if not candidates:
+        return None
+    # Independent representations can differ by one tick; reject real conflicts.
+    if (max(candidates) - min(candidates)).total_seconds() > 3:
+        return None
+    return max(candidates)

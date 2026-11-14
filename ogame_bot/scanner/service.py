@@ -12,6 +12,7 @@ from ..fleet.parsing import slots
 from ..storage.snapshots import save_snapshot
 from . import parsing
 from .dom import Document
+from ..brain.catalog import BUILD
 
 logger = logging.getLogger(__name__)
 
@@ -90,3 +91,27 @@ class Scanner:
             elif threat == "unknown":
                 logger.warning("El scanner no ha podido confirmar el estado de ataques.")
             logger.info("Instantánea guardada: %s cuerpos registrados, amenazas: %s.", len(snapshot.bodies), threat)
+
+    async def refresh_economy(self, snapshot: AccountSnapshot) -> AccountSnapshot:
+        """Re-read economy without repeating registry, hangar and fleet pages."""
+        facilities_needed = any(BUILD[goal.item].component == "facilities" for goal in self.config.brain.build_goals)
+        planets = [body for body in snapshot.bodies[:self.config.scanner_max_bodies] if body.body.kind == "planet"]
+        final_document: Document | None = None
+        for body in planets:
+            supplies = await self._document("supplies", body.body.id)
+            body.resources = parsing.resources(supplies) if supplies else Reading.unavailable("supplies_read_failed")
+            body.buildings = parsing.technologies(supplies, parsing.BUILDINGS) if supplies else Reading.unavailable("supplies_read_failed")
+            body.construction_queue = parsing.queue_state(supplies) if supplies else Reading.unavailable("queue_read_failed")
+            final_document = supplies
+            if facilities_needed:
+                facilities = await self._document("facilities", body.body.id)
+                body.facilities = parsing.technologies(facilities, parsing.FACILITIES) if facilities else Reading.unavailable("facilities_read_failed")
+        if planets and self.config.brain.research_enabled:
+            final_document = await self._document("research", planets[0].body.id, expand_events=True)
+            snapshot.research = parsing.technologies(final_document, parsing.RESEARCH) if final_document else Reading.unavailable("research_read_failed")
+            snapshot.research_queue = parsing.queue_state(final_document, research=True) if final_document else Reading.unavailable("research_queue_read_failed")
+        snapshot.movements = parsing.movements(final_document) if final_document else Reading.unavailable("economy_movements_read_failed")
+        snapshot.finished_at = utc_now()
+        save_snapshot(self.config.scanner_output_file, snapshot.to_dict())
+        logger.info("Lectura económica actualizada: %s planetas; sin recorrido de flotas.", len(planets))
+        return snapshot

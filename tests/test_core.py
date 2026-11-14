@@ -88,6 +88,12 @@ class SessionLogicTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session.state, SessionState.READY)
         self.page.goto.assert_awaited_once()
 
+    async def test_passive_health_check_does_not_navigate_healthy_session(self) -> None:
+        self.session.page = self.page
+        self.session.state = SessionState.READY
+        await self.session.observe()
+        self.page.goto.assert_not_awaited()
+
     async def test_reconnect_wait_observes_panel_stop_without_waiting_for_backoff(self) -> None:
         with patch.object(self.session, "_check_open", side_effect=[None, BrowserClosed("Stopped")]):
             with self.assertRaises(BrowserClosed):

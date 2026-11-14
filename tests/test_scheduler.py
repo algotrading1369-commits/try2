@@ -211,6 +211,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.session.authentication_generation = 0
         self.session.before_navigation = None
         self.session.check = AsyncMock()
+        self.session.observe = AsyncMock()
         self.journal = MagicMock()
         self.journal.pending.return_value = None
         self.defender = MagicMock()
@@ -219,7 +220,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.defender.process = AsyncMock(side_effect=defend)
         self.runtime = BotRuntime(self.config, self.session, self.journal, self.defender)
         self.runtime.scanner.scan = AsyncMock(return_value=snapshot())
-        self.runtime.brain.process = AsyncMock()
+        self.runtime.scanner.refresh_economy = AsyncMock(return_value=snapshot())
+        self.runtime.brain.process = AsyncMock(return_value={"result": {"state": "no_action"}, "notes": []})
         self.runtime.fleet.process = AsyncMock()
 
     async def test_initial_defense_precedes_scan_and_automation(self):
@@ -229,8 +231,13 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.session.defense_paused = False
         async def scan():
             order.append("scan")
-            return snapshot()
-        async def brain(*args): order.append("brain")
+            state = snapshot()
+            from test_brain import observed
+            state.bodies[0].ships = observed({})
+            return state
+        async def brain(*args):
+            order.append("brain")
+            return {"result": {"state": "no_action"}, "notes": []}
         async def fleet(*args): order.append("fleet")
         self.defender.process.side_effect = defend
         self.runtime.scanner.scan.side_effect = scan
@@ -263,7 +270,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         # Evita otra tarea inicial: aquí se comprueba la dependencia explícita.
         self.runtime.scheduler.jobs["defender"].next_due += 1000
         await self.runtime._brain()
-        self.runtime.scanner.scan.assert_awaited_once()
+        self.runtime.scanner.refresh_economy.assert_awaited_once()
         self.runtime.brain.process.assert_awaited_once()
 
     async def test_defense_mode_has_no_economic_jobs(self):

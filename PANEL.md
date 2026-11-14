@@ -46,6 +46,29 @@ reservas, intervalos y habilitación de módulos se recargan en marcha. Un modo
 Las instrucciones guardadas durante el acceso se aplican al entrar en el bucle
 de trabajo después de autenticar la sesión.
 
+## Espera sin navegación continua
+
+En modo autónomo se hace una lectura inicial completa. Después, el scanner
+trabaja a demanda: una confirmación de orden, nuevas instrucciones o el próximo
+momento útil activan las lecturas necesarias. Las revisiones económicas releen
+producción e investigación sin recorrer otra vez las páginas de flotas.
+La comprobación de sesión observa el DOM; no recarga una pestaña sana.
+
+Si una cola publica una hora de finalización legible, se espera hasta esa hora
+con un margen de cinco segundos. Si no se puede leer, se usa
+`automation.idle_retry_seconds` (600 segundos por defecto, editable en Construcción).
+Para recursos se puede usar una estimación del modelo configurado, limitada por
+ese intervalo de reserva. La estimación nunca autoriza un clic: recursos,
+identidad, cola y amenazas se verifican de nuevo antes de ejecutar.
+
+El defensor conserva sus propios intervalos. Cambiar solo un intervalo no
+reinicia todos los trabajos. La tabla de módulos indica el motivo de espera
+y la próxima revisión. En «Solo scanner» se mantienen las lecturas periódicas
+configuradas explícitamente en su pestaña.
+
+Mientras una mejora esté pendiente de confirmación no se envía otra mejora.
+La siguiente lectura puede confirmar el nivel sin otra navegación adicional.
+
 ## Modos y recursos reales
 
 El selector permite todos los módulos habilitados, solo scanner, solo sesión

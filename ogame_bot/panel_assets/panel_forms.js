@@ -5,7 +5,7 @@ const moduleDefinitions = [
  ['Constructor',[
  ['builder.enabled','Constructor habilitado','bool'],['automation.economic_live','Construcción e investigación con recursos reales (ambos módulos; flotas siguen en simulación)','bool'],['builder.strategy','Estrategia','select',[['priority','Cola por prioridades'],['roi','Inteligente: rentabilidad estimada (ROI)']]],
  ['builder.auto_solar','Construir solar cuando falte energía','bool'],['builder.minimum_energy','Energía mínima disponible','number',0],['builder.max_solar_level','Nivel solar máximo','number',1],
- ['automation.min_interval_seconds','Revisión mínima (s)','number',1],['automation.max_interval_seconds','Revisión máxima (s)','number',1]]],
+ ['automation.min_interval_seconds','Revisión mínima (s)','number',1],['automation.max_interval_seconds','Revisión máxima (s)','number',1],['automation.idle_retry_seconds','Espera de reserva si no hay hora fiable (s)','number',30]]],
  ['Modelo de rentabilidad',[
  ['builder.economy_speed','Velocidad económica (vacío = sin definir)','nullable',1],['builder.max_payback_days','Amortización máxima (días)','number',0.01],
  ['builder.resource_weights','Valor relativo de metal, cristal y deuterio','resources'],['builder.production_multipliers','Multiplicadores de producción de cada recurso','resources'],
@@ -43,7 +43,7 @@ const moduleDefinitions = [
  ['Reunir recursos por transporte',[
  ['fleet.transports.enabled','Planificar transportes','bool'],['fleet.transports.sources','IDs de orígenes','ids'],['fleet.transports.destination_id','ID del destino propio','nullable',1],
  ['fleet.transports.cargo_ship','Carguero','cargo'],['fleet.transports.minimum_utilization_percent','Ocupación mínima (%)','number',1],['fleet.transports.leave_resources','Recursos que se dejan en origen','resources']]]]},
- {id:'scanner',name:'Modo Scanner',icon:'◎',help:'Lee recursos, tecnologías, cuerpos y movimientos. Para ejecutar únicamente lecturas, selecciona «Solo scanner» en el modo de arranque.',groups:[
+ {id:'scanner',name:'Modo Scanner',icon:'◎',help:'En modo autónomo se hace una lectura inicial y después se lee a demanda. Los intervalos de esta pestaña se usan en Solo scanner; la espera económica se ajusta en Construcción.',groups:[
  ['Lectura de cuenta',[
  ['scanner.enabled','Scanner habilitado','bool'],['scanner.min_interval_seconds','Intervalo mínimo (s)','number',1],['scanner.max_interval_seconds','Intervalo máximo (s)','number',1],
  ['scanner.max_bodies_per_scan','Máximo de cuerpos por lectura','number',1],['scanner.max_reading_age_seconds','Vigencia máxima de lecturas (s)','number',1]]],
@@ -56,7 +56,7 @@ const moduleDefinitions = [
  ['fleet.reserved_slots','Slots que deben quedar libres','number',0],['fleet.deuterium_reserve','Reserva de deuterio de flotas','number',0],['fleet.maximum_fuel','Combustible máximo por envío','number',1],
  ['fleet.maximum_oneway_seconds','Duración máxima de ida (s)','number',1],['fleet.speed_percent','Velocidad de flotas (%)','speed'],['fleet.capacities','Capacidades verificadas por nave (JSON)','json']]],
  ['Sesión y tiempos',[
- ['session.manual_login_timeout_seconds','Plazo para acceso manual (s)','number',1],['session.health_check_seconds','Comprobación de sesión (s)','number',1],['session.max_reconnect_attempts','Intentos de reconexión','number',1],
+ ['session.manual_login_timeout_seconds','Plazo para acceso manual (s)','number',1],['session.health_check_seconds','Comprobación pasiva de sesión (s)','number',1],['session.max_reconnect_attempts','Intentos de reconexión','number',1],
  ['session.initial_backoff_seconds','Espera inicial de reconexión (s)','number',0.1],['session.max_backoff_seconds','Espera máxima de reconexión (s)','number',0.1],
  ['timing.min_delay_seconds','Pausa mínima entre acciones (s)','number',0],['timing.max_delay_seconds','Pausa máxima entre acciones (s)','number',0]]],
  ['Navegador',[

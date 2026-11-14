@@ -73,8 +73,8 @@ class Planner:
         self.max_age = max_age
         self.notes: list[dict[str, Any]] = []
 
-    def note(self, body_id: int | None, reason: str) -> None:
-        self.notes.append({"body_id": body_id, "reason": reason})
+    def note(self, body_id: int | None, reason: str, **details: Any) -> None:
+        self.notes.append({"body_id": body_id, "reason": reason, **details})
 
     def _resources(self, body: BodySnapshot) -> dict[str, int] | None:
         values = body.resources.data or {}
@@ -189,7 +189,7 @@ class Planner:
                     if afford(resources, proposal.cost, self.settings.reserve):
                         proposals.append(proposal)
                     else:
-                        self.note(body.body.id, "building_resources_or_reserve_insufficient")
+                        self.note(body.body.id, "building_resources_or_reserve_insufficient", cost=proposal.cost)
         if self.settings.research_enabled:
             if not free(snapshot.research_queue, self.max_age):
                 self.note(None, "research_queue_busy_unknown_or_expired")
@@ -202,14 +202,14 @@ class Planner:
                     if current >= goal.target_level:
                         continue
                     for body in snapshot.bodies:
-                        if body.body.kind != "planet" or not free(body.construction_queue, self.max_age):
+                        if body.body.kind != "planet":
                             continue
                         resources = self._resources(body)
                         if resources is not None and afford(resources, RESEARCH[goal.item].cost(current + 1), self.settings.reserve):
                             proposals.append(self._upgrade(body, goal.item, current, "research_priority", research=True))
                             break
-                    else:
-                        self.note(None, "research_resources_or_reserve_insufficient")
+                        if resources is not None:
+                            self.note(body.body.id, "research_resources_or_reserve_insufficient", cost=RESEARCH[goal.item].cost(current + 1))
                     break
         return proposals
 

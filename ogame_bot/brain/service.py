@@ -43,7 +43,7 @@ class Brain:
         actions = self.planner.plan(snapshot)
         selected = self.select(actions)
         report: dict[str, Any] = {
-            "schema_version": 1, "created_at": utc_now(), "dry_run": not uses_real_resources(selected, settings) if selected is not None else self.config.brain.dry_run,
+            "schema_version": 1, "created_at": utc_now(), "dry_run": not uses_real_resources(selected, settings) if selected is not None else settings.dry_run and not (settings.probe_bootstrap_live if settings.probe_target else settings.economic_live),
             "cost_model": "classic_without_discounts", "roi_model": "estimated_full_production",
             "actions": [action.to_dict() for action in actions], "notes": self.planner.notes,
             "selected": selected.to_dict() if selected else None,

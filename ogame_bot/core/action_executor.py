@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 import logging
+from playwright.async_api import Error
 
 from ..brain.catalog import MINES, energy_delta
 from ..brain.settings import BrainSettings, effective_brain_settings
@@ -87,7 +88,8 @@ class ActionExecutor:
                     return {"state": "confirmed", "order_id": identifier}
         except (ReadError, ConnectionLost):
             return {"state": "pending", "order_id": identifier, "reason": "reconciliation_unavailable"}
-        return {"state": "pending", "order_id": identifier, "reason": "target_level_not_confirmed"}
+        queue = parsing.queue_state(document, research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
+        return {"state": "pending", "order_id": identifier, "reason": "target_level_not_confirmed", "retry_at": (queue.data or {}).get("ends_at")}
 
     async def execute(self, upgrade: Upgrade) -> dict[str, Any]:
         # Valida también llamadas que no provengan directamente del planificador.
@@ -160,4 +162,9 @@ class ActionExecutor:
                 self.journal.mark(identifier, "uncertain")
                 raise
             # La aceptación de un clic no acredita el nivel. La próxima lectura reconcilia.
-            return {"state": "pending", "order_id": identifier, "reason": "awaiting_target_level"}
+            try:
+                queue = parsing.queue_state(Document(await page.content()), research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
+                retry_at = (queue.data or {}).get("ends_at")
+            except Error:
+                retry_at = None
+            return {"state": "pending", "order_id": identifier, "reason": "awaiting_target_level", "retry_at": retry_at}

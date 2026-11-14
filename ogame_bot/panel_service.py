@@ -28,7 +28,7 @@ from .errors import CoreError
 from .live_config import validate_live_change
 
 EDITABLE = {
-    "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds"},
+    "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds", "idle_retry_seconds"},
     "builder": {"enabled", "strategy", "priorities", "reserve", "minimum_energy", "auto_solar", "max_solar_level", "max_payback_days", "economy_speed", "resource_weights", "production_multipliers", "temperatures"},
     "research": {"enabled", "priorities"},
     "fleet": {"enabled", "min_interval_seconds", "max_interval_seconds", "reserved_slots", "deuterium_reserve", "maximum_fuel", "maximum_oneway_seconds", "speed_percent", "capacities", "expeditions", "transports", "recycling"},
@@ -56,7 +56,7 @@ class PanelService:
         self.installation = hashlib.sha256(str(self.path).encode()).hexdigest()[:16]
         project = Path(__file__).parent
         digest = hashlib.sha256()
-        for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "core/panel_control.py", "core/session.py", "core/browser.py", "core/action_executor.py", "brain/service.py", "brain/settings.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
+        for relative in ("panel.py", "panel_service.py", "app.py", "config.py", "live_config.py", "scheduler/runtime.py", "scheduler/loop.py", "scheduler/waiting.py", "scanner/service.py", "scanner/parsing.py", "core/panel_control.py", "core/session.py", "core/browser.py", "core/action_executor.py", "brain/service.py", "brain/settings.py", "panel_assets/index.html", "panel_assets/panel.js", "panel_assets/panel_forms.js"):
             digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
@@ -70,6 +70,7 @@ class PanelService:
         raw["automation"].setdefault("probe_body_id", None)
         raw["automation"].setdefault("probe_bootstrap_live", False)
         raw["automation"].setdefault("economic_live", False)
+        raw["automation"].setdefault("idle_retry_seconds", 600)
         return {"version": hashlib.sha256(raw_bytes).hexdigest(),
                 **{section: {key: raw[section][key] for key in sorted(keys)} for section, keys in EDITABLE.items()}}
 

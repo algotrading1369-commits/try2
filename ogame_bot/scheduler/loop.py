@@ -56,6 +56,8 @@ class Job:
     last_duration_seconds: float | None = None
     last_started_at: str | None = None
     last_finished_at: str | None = None
+    deferred_delay: float | None = None
+    waiting_reason: str | None = None
 
 
 class Scheduler:
@@ -99,6 +101,18 @@ class Scheduler:
         self._stop = True
         self._wake.set()
 
+    def defer(self, name: str, seconds: float, reason: str) -> None:
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("La espera debe ser positiva y finita.")
+        job = self.jobs.get(name)
+        if job is not None:
+            job.waiting_reason = reason
+            if job.running:
+                job.deferred_delay = seconds
+            else:
+                job.next_due = self.clock() + seconds
+            self._wake.set()
+
     def _due(self, *, before_priority: int | None = None) -> Job | None:
         candidates = [job for job in self.jobs.values() if not job.running and job.next_due <= self.clock() and job.allowed() is None and (before_priority is None or job.priority < before_priority)]
         return min(candidates, key=lambda job: (job.priority, job.next_due, job.name)) if candidates else None
@@ -127,6 +141,8 @@ class Scheduler:
             raise CoreError("Se ha intentado solapar un trabajo consigo mismo.")
         job.running = True
         job.requested = False
+        job.deferred_delay = None
+        job.waiting_reason = None
         job.last_started_at = datetime.now(timezone.utc).isoformat()
         started = self.clock()
         self.stack.append(job)
@@ -137,7 +153,7 @@ class Scheduler:
             job.consecutive_failures = 0
             job.last_result = "ok"
             job.last_error_type = None
-            job.next_due = self.clock() if job.requested else self.clock() + self._delay(job)
+            job.next_due = self.clock() if job.requested else self.clock() + (job.deferred_delay if job.deferred_delay is not None else self._delay(job))
         except DependencyPending:
             job.deferred += 1
             job.last_result = "waiting_for_data"
@@ -185,7 +201,7 @@ class Scheduler:
         return {"schema_version": 1, "state": self.state, "heartbeat_at": now.isoformat(),
             "heartbeat_valid_until": (now + timedelta(seconds=max(self.settings.heartbeat_seconds * 3, self.settings.idle_poll_seconds * 3))).isoformat(),
             "last_error_type": self.last_error_type, "active_jobs": [job.name for job in self.stack],
-            "jobs": [{"name": job.name, "priority": job.priority, "running": job.running, "blocked_reason": job.allowed(),
+            "jobs": [{"name": job.name, "priority": job.priority, "running": job.running, "blocked_reason": job.allowed(), "waiting_reason": job.waiting_reason,
                 "next_due_at": (now + timedelta(seconds=max(0, job.next_due - self.clock()))).isoformat(),
                 "runs": job.runs, "failures": job.failures, "consecutive_failures": job.consecutive_failures, "deferred": job.deferred,
                 "last_result": job.last_result, "last_error_type": job.last_error_type,
