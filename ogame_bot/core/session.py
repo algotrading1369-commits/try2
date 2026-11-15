@@ -15,6 +15,7 @@ from playwright.async_api import BrowserContext, Error, Page, TimeoutError as Pl
 from ..config import Config
 from ..errors import BrowserClosed, ConnectionLost, IdentityMismatch, LoginRequired, ReadError
 from .timing import backoff, jitter
+from .lobby_auth import LobbyAuthenticator
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -41,6 +42,7 @@ class SessionManager:
         self._closed = False
         self.transaction_active = False
         self.lobby_recovery_reason: str | None = None
+        self.authenticator = LobbyAuthenticator()
         context.on("close", self._on_close)
 
     def _on_close(self, *_: object) -> None:
@@ -146,7 +148,7 @@ class SessionManager:
         return False
 
     async def _resume_from_lobby(self) -> bool:
-        """Use an existing Lobby login; never submit credentials or challenges.
+        """Reuse Lobby access or the explicitly configured local form login.
 
         The visible row may not expose the server number. Only a unique exact
         player/community match can be opened; the resulting game hostname and
@@ -166,7 +168,10 @@ class SessionManager:
                 try:
                     await self._interruptible_read(link.wait_for(state="visible", timeout=15000))
                 except Error:
-                    return self._lobby_pending("play_link_not_ready_or_login_required")
+                    if not await self.authenticator.attempt(self):
+                        reason = self.authenticator.status if self.config.auto_login else "play_link_not_ready_or_login_required"
+                        return self._lobby_pending(reason)
+                    await self._interruptible_read(link.wait_for(state="visible", timeout=15000))
                 if await link.count() != 1 or not await link.is_visible():
                     return self._lobby_pending("play_link_not_unique_or_visible")
                 await self._interruptible_read(link.click())

@@ -49,6 +49,8 @@ class Config:
     scheduler: SchedulerSettings
     source_file: Path | None = None
     source_version: str | None = None
+    auto_login: bool = False
+    login_retry_seconds: float = 300
 
     @property
     def server_origin(self) -> str:
@@ -82,8 +84,11 @@ def load_config(path: Path) -> Config:
     if set(raw) - {"shipyard"} != {"version", *schema, "automation", "builder", "research", "fleet", "defender", "telegram", "scheduler"}:
         raise ConfigurationError("Faltan secciones o hay secciones desconocidas.")
     for name, fields in schema.items():
-        if not isinstance(raw[name], dict) or set(raw[name]) != fields:
+        optional = {"auto_login", "login_retry_seconds"} if name == "session" else set()
+        if not isinstance(raw[name], dict) or set(raw[name]) - optional != fields:
             raise ConfigurationError(f"Campos incorrectos en la sección {name}.")
+    raw['session'].setdefault('auto_login', False)
+    raw['session'].setdefault('login_retry_seconds', 300)
 
     def value(section: str, key: str, kind: type, minimum: float | None = None) -> Any:
         item = raw[section][key]
@@ -139,6 +144,8 @@ def load_config(path: Path) -> Config:
         scheduler=load_scheduler_settings(raw["scheduler"], path.resolve().parent),
         source_file=path.resolve(),
         source_version=hashlib.sha256(source_bytes).hexdigest(),
+        auto_login=value('session', 'auto_login', bool),
+        login_retry_seconds=value('session', 'login_retry_seconds', float, 60),
     )
     if config.min_delay_seconds > config.max_delay_seconds:
         raise ConfigurationError("El retraso mínimo supera el máximo.")

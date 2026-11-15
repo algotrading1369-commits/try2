@@ -18,7 +18,7 @@ def config_version(config: Config) -> str | None:
 
 
 def validate_live_change(previous: Config, candidate: Config) -> None:
-    editable = {"scheduler", "brain", "fleet", "defender", "telegram", "scanner_enabled", "scanner_min_interval_seconds", "scanner_max_interval_seconds", "scanner_max_bodies", "scanner_max_reading_age_seconds", "health_check_seconds", "manual_login_timeout_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds", "min_delay_seconds", "max_delay_seconds", "navigation_timeout_seconds", "action_timeout_seconds", "source_file"}
+    editable = {"scheduler", "brain", "fleet", "defender", "telegram", "scanner_enabled", "scanner_min_interval_seconds", "scanner_max_interval_seconds", "scanner_max_bodies", "scanner_max_reading_age_seconds", "auto_login", "login_retry_seconds", "health_check_seconds", "manual_login_timeout_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds", "min_delay_seconds", "max_delay_seconds", "navigation_timeout_seconds", "action_timeout_seconds", "source_file"}
     for field in fields(previous):
         if field.name not in editable | {"source_version"} and getattr(previous, field.name) != getattr(candidate, field.name):
             raise ConfigurationError("Este cambio de cuenta, navegador o almacenamiento requiere reiniciar el bot.")

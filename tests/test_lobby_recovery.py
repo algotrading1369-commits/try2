@@ -111,6 +111,27 @@ class LobbyRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.link.click.assert_not_awaited()
         self.button.click.assert_not_awaited()
 
+    async def test_configured_login_recovers_expired_lobby_before_opening_universe(self) -> None:
+        self.session.config = replace(self.config, auto_login=True)
+        self.page.url = 'https://lobby.ogame.gameforge.com/es_ES/'
+        self.link.wait_for.side_effect = [PlaywrightTimeout('synthetic expired lobby'), None]
+        with patch.object(self.session.authenticator, 'attempt', new_callable=AsyncMock, return_value=True) as login:
+            self.assertTrue(await self.session._resume_from_lobby())
+        login.assert_awaited_once_with(self.session)
+        self.button.click.assert_awaited_once()
+        self.assertEqual(self.session.state, SessionState.READY)
+
+    async def test_failed_login_logs_only_sanitized_status(self) -> None:
+        self.session.config = replace(self.config, auto_login=True)
+        self.page.url = 'https://lobby.ogame.gameforge.com/es_ES/'
+        self.link.wait_for.side_effect = PlaywrightTimeout('synthetic login page')
+        self.session.authenticator.status = 'verification_required'
+        with patch.object(self.session.authenticator, 'attempt', new_callable=AsyncMock, return_value=False):
+            with self.assertLogs('ogame_bot.core.session', level='WARNING') as output:
+                self.assertFalse(await self.session._resume_from_lobby())
+        self.assertIn('verification_required', output.output[0])
+        self.button.click.assert_not_awaited()
+
     async def test_untrusted_lobby_hostname_is_rejected(self) -> None:
         self.page.url = 'https://lobby.ogame.gameforge.com.evil.example/es_ES/accounts'
         self.assertFalse(await self.session._resume_from_lobby())

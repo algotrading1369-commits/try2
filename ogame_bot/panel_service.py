@@ -36,7 +36,7 @@ EDITABLE = {
     "defender": {"enabled", "live", "origins", "destinations", "mission", "speed_percent", "trigger_seconds", "minimum_lead_seconds", "max_state_age_seconds", "minimum_flight_seconds", "maximum_flight_seconds", "maximum_fuel", "resource_policy", "pause_on_unknown", "idle_min_seconds", "idle_max_seconds", "alert_min_seconds", "alert_max_seconds"},
     "scheduler": {"isolate_failures"},
     "scanner": {"enabled", "min_interval_seconds", "max_interval_seconds", "max_bodies_per_scan", "max_reading_age_seconds"},
-    "session": {"manual_login_timeout_seconds", "health_check_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds"},
+    "session": {"manual_login_timeout_seconds", "health_check_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds", "auto_login", "login_retry_seconds"},
     "timing": {"min_delay_seconds", "max_delay_seconds"},
     "browser": {"headless", "channel", "locale", "navigation_timeout_seconds", "action_timeout_seconds"},
     "telegram": {"enabled", "timeout_seconds", "cooldown_seconds"},
@@ -64,6 +64,8 @@ class PanelService:
             digest.update((project / relative).read_bytes())
         for relative in ("fleet/fleetsave.py","fleet/native.py","fleet/models.py","fleet/parsing.py","defender/settings.py","defender/service.py","scheduler/settings.py","adapters/ogame/reader.py"):
             digest.update((project/relative).read_bytes())
+        for relative in ("credentials.py", "core/lobby_auth.py"):
+            digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
         self.control_token: str | None = None
@@ -72,6 +74,8 @@ class PanelService:
     def settings(self) -> dict[str, Any]:
         raw_bytes = self.path.read_bytes()
         raw = yaml.safe_load(raw_bytes)
+        raw["session"].setdefault("auto_login", False)
+        raw["session"].setdefault("login_retry_seconds", 300)
         raw.setdefault("shipyard", {"enabled":False,"live":False,"max_batch":100,"queue":[]})
         from .fleet.settings import FLEETSAVE_DEFAULTS
         raw["fleet"].setdefault("fleetsave",dict(FLEETSAVE_DEFAULTS))

@@ -632,3 +632,50 @@ lectura completa y se comprueba defensa antes de continuar la automatización.
 Durante la ejecución continua, un intento fallido de reconexión devuelve el
 control al scheduler para programar el siguiente intento y actualizar su estado;
 no retiene el bloqueo del navegador esperando diez minutos de acceso manual.
+
+### Inicio automático cuando caduca el Lobby (Windows)
+
+Ejecuta `Configurar_acceso.bat` una vez e introduce localmente tu correo y
+contraseña de Gameforge; la contraseña no se muestra. El asistente guarda el
+acceso en el Administrador de credenciales de tu usuario de Windows y activa
+`session.auto_login`. Reinicia el bot y abre de nuevo `Abrir_panel.bat`.
+En Configuración general puedes activar/desactivar el uso de ese acceso y
+ajustar la espera entre intentos. La contraseña nunca se pide desde el panel.
+
+El registro de credencial está ligado al jugador y universo configurados.
+No se guarda en YAML, variables de entorno, GitHub o registros, y no se usan
+contraseñas del navegador ni credenciales de otras aplicaciones. Para retirar
+la credencial guardada y desactivar esta función, ejecuta `Desactivar_acceso.bat`.
+La cuenta de Windows que ejecute el bot debe ser la misma que configuró el
+acceso. En otros sistemas se conserva el acceso manual, sin almacenamiento
+alternativo en texto plano.
+
+Opciones no secretas (opcionales y compatibles con configuraciones anteriores):
+
+```yaml
+session:
+  auto_login: false
+  login_retry_seconds: 300  # mínimo 60; máximo tres envíos por proceso
+```
+
+El fragmento añade opciones a la sección existente, no sustituye sus otros
+campos. Si caduca el Lobby, solo se rellena un formulario de acceso reconocido
+en los orígenes HTTPS oficiales admitidos. Se verifica de nuevo el destino antes
+de introducir la contraseña y de enviar el formulario. Formularios ambiguos,
+registro, acceso social y orígenes desconocidos requieren acceso manual. Un
+CAPTCHA, un código de verificación o un rechazo detienen los nuevos envíos de
+credenciales; puedes completar la comprobación personalmente. La selección de
+universo y la verificación de identidad se mantienen tras iniciar sesión.
+
+La API nativa utilizada es `CredWriteW`/`CredReadW`/`CredDeleteW`, con credenciales
+genéricas persistentes en este PC para el usuario actual. Referencias:
+[CredWriteW](https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credwritew),
+[CREDENTIALW](https://learn.microsoft.com/windows/win32/api/wincred/ns-wincred-credentialw).
+Las pruebas usan accesos sintéticos y no leen credenciales de cuentas reales.
+La prueba nativa opcional solo escribe y retira una clave aleatoria del espacio
+`OrbitOGame/Lobby/v1/test-*` (`OGAME_CREDENTIAL_TESTS=1`). El envío de credenciales
+al formulario real aún requiere validación con el acceso configurado localmente.
+En esta entrega, la prueba nativa no pudo guardar la credencial sintética desde
+la sesión de desarrollo: Windows devolvió error 5 (acceso denegado). Debe
+comprobarse desde la sesión normal del usuario con `Configurar_acceso.bat`;
+no se recurre a almacenamiento alternativo si Windows deniega el acceso.
