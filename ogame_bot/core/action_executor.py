@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import asdict
 import asyncio
 import logging
 from playwright.async_api import Error
@@ -180,16 +181,23 @@ class ActionExecutor:
                 self.journal.mark(identifier, "uncertain")
                 raise
             # La aceptación de un clic no acredita el nivel. La próxima lectura reconcilia.
+            observed_resources = None
             try:
                 # The click can return before the AJAX production panel changes.
                 # Observe the DOM locally; never repeat the click or navigate here.
                 for attempt in range(7):
-                    queue = parsing.queue_state(Document(await page.content()), research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
+                    after = Document(await page.content())
+                    queue = parsing.queue_state(after, research=upgrade.kind == "research", shipyard=upgrade.kind == "shipyard")
                     if (queue.data or {}).get("state") == "busy":
+                        verify_identity(after, upgrade, self.config)
+                        reading = parsing.resources(after)
+                        if reading.status == "complete":
+                            observed_resources = asdict(reading)
                         break
                     if attempt < 6:
                         await asyncio.sleep(0.25)
                 retry_at = (queue.data or {}).get("ends_at")
             except Error:
                 retry_at = None
-            return {"state": "pending", "order_id": identifier, "reason": "awaiting_target_level", "retry_at": retry_at}
+            return {"state": "pending", "order_id": identifier, "reason": "awaiting_target_level", "retry_at": retry_at,
+                    "observed_resources": observed_resources}

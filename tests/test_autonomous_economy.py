@@ -131,6 +131,7 @@ class AutonomousEconomyTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(clicks),2, 'Both independent queues should start immediately')
             self.assertEqual(len(journal.pending_upgrades()),2)
             self.assertEqual(runtime.latest.bodies[0].resources.data,state.bodies[0].resources.data)
+            self.assertEqual(len(reads),2, 'Only the initial scan and the parallel-queue check should navigate')
             reads_before=len(reads)
             for moment in (3,10,30,59):
                 clock[0]=moment

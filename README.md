@@ -451,6 +451,15 @@ está demasiado atrasado, pueden pedir una nueva lectura como dependencia antes
 de planificar. La vigencia de cada sección sigue comprobándose por separado:
 un recorrido terminado no convierte en completos o actuales todos sus datos.
 
+Tras iniciar una construcción, investigación o fabricación, no se fuerza otro
+recorrido económico inmediato si no hay una propuesta para otra cola que siga
+siendo asequible después de descontar el gasto y la reserva. La próxima lectura
+se programa según la finalización conocida. Si otra cola puede avanzar, se
+conserva la lectura real de recursos antes de enviar su orden. Los recursos que
+ya se han leído en el DOM tras el clic se reutilizan para actualizar el panel,
+sin abrir otras páginas ni presentar una resta estimada como lectura real. Defensa mantiene
+su intervalo independiente; una amenaza o reconexión puede anticipar una visita.
+
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
 revisar la defensa antes de reanudar esos trabajos. Una comprobación de sesión

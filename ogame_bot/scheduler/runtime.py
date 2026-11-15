@@ -6,7 +6,7 @@ import logging
 
 from ..adapters.ogame.reader import OGameReader
 from ..brain.service import Brain
-from ..brain.planner import Upgrade
+from ..brain.planner import Upgrade, afford
 from ..config import Config, load_config
 from ..live_config import config_version, validate_live_change, report_config
 from ..errors import CoreError
@@ -14,7 +14,7 @@ from ..observability.telegram import TelegramTransport
 from ..core.action_executor import ActionExecutor
 from ..core.session import SessionManager, SessionState
 from ..defender.service import Defender
-from ..domain.models import AccountSnapshot
+from ..domain.models import AccountSnapshot, Reading
 from ..errors import ConnectionLost, LoginRequired
 from ..fleet.executor import FleetExecutor
 from ..fleet.reader import FleetReader
@@ -263,13 +263,50 @@ class BotRuntime:
             save_snapshot(self.config.brain.plan_file, report)
             self.scheduler.defer("brain", delay, reason)
             self._schedule_reconciliation()
-            if result.get("state") == "pending":
+            parallel_ready = result.get("state") == "pending" and self._parallel_queue_ready(snapshot, report)
+            observed = result.get("observed_resources")
+            if result.get("state") == "pending" and isinstance(observed, dict):
+                body_id = (report.get("selected") or {}).get("body_id")
+                body = next((body for body in snapshot.bodies if body.body.id == body_id), None)
+                reading = Reading(**observed)
+                if body is not None and reading.status == "complete" and reading.is_fresh(self.config.scanner_max_reading_age_seconds):
+                    body.resources = reading
+                    save_snapshot(self.config.scanner_output_file, snapshot.to_dict())
+            if parallel_ready:
                 # Refresh the spent resources and evaluate the other game queue.
                 # The journal filters this queue even if its DOM still says free.
                 self._read_requested = True
                 self.scheduler.trigger("scanner")
                 self.scheduler.trigger("brain")
             logger.info("Espera económica: %.0f segundos; motivo: %s.", delay, reason)
+
+    def _parallel_queue_ready(self, snapshot: AccountSnapshot, report: dict[str, Any]) -> bool:
+        """Refresh after spending only when another queue can still advance.
+
+        This estimate only schedules a read; the executor must verify the real
+        resources again before submitting another order.
+        """
+        selected = report.get("selected")
+        if not isinstance(selected, dict):
+            return False
+        def queue_key(action: dict[str, Any]) -> tuple[Any, Any]:
+            return action.get("kind"), None if action.get("kind") == "research" else action.get("body_id")
+        for candidate in report.get("actions", []):
+            if queue_key(candidate) == queue_key(selected):
+                continue
+            action = Upgrade.from_dict(candidate)
+            if self.journal is not None and self.journal.pending_for(action) is not None:
+                continue
+            body = next((body for body in snapshot.bodies if body.body.id == action.body_id), None)
+            if body is None or not body.resources.is_fresh(self.config.scanner_max_reading_age_seconds):
+                continue
+            resources = dict(body.resources.data or {})
+            if action.body_id == selected.get("body_id"):
+                for resource, amount in selected.get("cost", {}).items():
+                    resources[resource] = resources.get(resource, 0) - amount
+            if afford(resources, action.cost, self.config.brain.reserve):
+                return True
+        return False
 
     async def _fleets(self) -> None:
         if self.fleet is not None:
