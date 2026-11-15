@@ -12,6 +12,11 @@ User=ogame
 Group=ogame
 WorkingDirectory=/opt/ogame
 Environment=HOME=/var/lib/ogame
+Environment=XDG_CONFIG_HOME=/var/lib/ogame/.config
+Environment=XDG_CACHE_HOME=/var/lib/ogame/.cache
+Environment=XDG_RUNTIME_DIR=/run/ogame
+RuntimeDirectory=ogame
+RuntimeDirectoryMode=0700
 Environment=DISPLAY=:99
 Environment=XAUTHORITY=/run/ogame-display/Xauthority
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/ogame/browsers
