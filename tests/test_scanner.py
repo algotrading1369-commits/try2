@@ -163,6 +163,7 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
     def reader(self, html: str) -> OGameReader:
         page = MagicMock()
         page.content = AsyncMock(return_value=html)
+        page.locator.return_value.count = AsyncMock(return_value=0)
         page.locator.return_value.filter.return_value.first.wait_for = AsyncMock()
         session = MagicMock()
         session.config.expected_player_name = "Test Commander"

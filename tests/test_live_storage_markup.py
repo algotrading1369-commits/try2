@@ -97,6 +97,7 @@ class OverviewReadinessTests(unittest.IsolatedAsyncioTestCase):
     async def test_capture_waits_for_numeric_planet_details_before_reading_html(self) -> None:
         events: list[str] = []
         page = MagicMock()
+        page.locator.return_value.count = AsyncMock(return_value=0)
 
         async def ready(**kwargs: object) -> None:
             events.append('details_ready')

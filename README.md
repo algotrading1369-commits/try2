@@ -574,6 +574,16 @@ explícito en Visión general o fijarse manualmente. Si falta, ROI excluye el
 deuterio y sigue comparando las minas verificadas, indicando la limitación.
 Si la solar automática está desactivada y falta energía, se muestra el bloqueo.
 
+El deuterio se excluye del ROI si no hay una temperatura máxima verificada;
+tener recursos y un nivel bajo no evita ese bloqueo. El lector prioriza
+`temperatureContentField`, admite signos negativos separados en spans y los
+símbolos Celsius habituales, y espera a que el rango esté renderizado antes de
+capturar Visión general. Los diagnósticos indican la mina y los errores de
+lectura de temperatura. La regresión `test_deuterium_temperature.py` reproduce
+minas 16/13/6 con recursos disponibles y confirma la propuesta de deuterio 6→7
+cuando el rango válido vuelve a estar disponible. No envía ninguna construcción
+real ni inventa temperaturas para completar una lectura ausente.
+
 La prueba `test_autonomous_economy.py` encadena ocho órdenes por estrategia con
 juego simulado y planificador, ejecutor, journal y scheduler reales; verifica
 recursos restantes, colas independientes y ausencia de navegación durante las

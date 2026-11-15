@@ -69,11 +69,24 @@ def planet_temperature(document: Document) -> Reading[dict[str, int]]:
     panels = document.by_id("planetdata")
     if len(panels) != 1:
         return Reading.unavailable("temperature_panel_missing_or_duplicate")
-    text = panels[0].text.replace("−", "-")
-    values = re.findall(r"Temperatura\s*:?\s*(?:de|entre)?\s*(-?\d+)\s*°\s*C\s*(?:a|y|hasta)\s*(-?\d+)\s*°\s*C", text, re.IGNORECASE)
+    fields = document.by_id("temperatureContentField")
+    if len(fields) > 1:
+        return Reading.unavailable("temperature_field_duplicate")
+    scoped = panels[0].find(lambda node: node.attrs.get("id") == "temperatureContentField")
+    if fields and len(scoped) != 1:
+        return Reading.unavailable("temperature_field_outside_planet")
+    # Prefer the explicit value. Icons, help text and tooltips can separate
+    # the translated label from the value in the rendered planet panel.
+    text = (scoped[0].text if scoped else panels[0].text).replace("−", "-").replace("℃", "°C")
+    pattern = r"(?:de|entre)?\s*([+-]?\s*\d+)\s*[°º]\s*C\s*(?:a|y|hasta)\s*([+-]?\s*\d+)\s*[°º]\s*C"
+    if scoped:
+        match = re.fullmatch(r"(?:Temperatura\s*:?\s*)?"+pattern, text.strip(), re.IGNORECASE)
+        values = [match.groups()] if match else []
+    else:
+        values = re.findall(r"Temperatura\s*:?\s*"+pattern, text, re.IGNORECASE)
     if len(values) != 1:
         return Reading.unavailable("temperature_range_unknown")
-    minimum, maximum = map(int, values[0])
+    minimum, maximum = (int(re.sub(r"\s+", "", value)) for value in values[0])
     if not -273 <= minimum <= maximum <= 200:
         return Reading.unavailable("temperature_range_invalid")
     return Reading({"minimum": minimum, "maximum": maximum}, utc_now(), "complete")

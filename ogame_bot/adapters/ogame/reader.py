@@ -46,6 +46,17 @@ class OGameReader:
                 await page.locator("#planetdata #diameterContentField, #planetdata .fields").filter(
                     has_text=re.compile(r"\d+\s*/\s*\d+")
                 ).first.wait_for(state="attached")
+                temperature = page.locator("#planetdata #temperatureContentField")
+                if await temperature.count() == 1:
+                    try:
+                        await temperature.filter(has_text=re.compile(
+                            r"[+\-−]?\s*\d+\s*(?:[°º]\s*C|℃)\s*(?:a|y|hasta)\s*[+\-−]?\s*\d+\s*(?:[°º]\s*C|℃)",
+                            re.IGNORECASE,
+                        )).wait_for(state="attached")
+                    except Error:
+                        # Preserve the rest of the account reading if this
+                        # optional property cannot be verified (e.g. a moon).
+                        pass
             elif component == "fleetdispatch":
                 # Un planeta sin naves no tiene tarjetas technology.
                 await page.locator('.technology[data-technology], #warning p').first.wait_for(state="attached")

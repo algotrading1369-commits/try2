@@ -211,7 +211,8 @@ class Planner:
                     # unlike its resources and queues; no extra navigation.
                     temperature = (body.temperature.data or {}).get("maximum")
                 if temperature is None:
-                    self.note(body.body.id, "roi_temperature_unknown")
+                    self.note(body.body.id, "roi_temperature_unknown", item=goal.item,
+                        temperature_status=body.temperature.status, temperature_issues=list(body.temperature.issues))
                     continue
                 temperature_factor = 1.44 - 0.004 * temperature
             if settings.economy_speed is None:
