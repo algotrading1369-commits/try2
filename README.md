@@ -607,5 +607,16 @@ Este runner está disponible para reproducir la verificación:
 ```
 
 La configuración también se validó con la entrada real --check-config.
-El acceso real al Lobby, la persistencia real de cookies y los selectores
-actuales de Gameforge siguen pendientes de validación con navegador.
+La capacidad de almacenes y los campos del planeta se contrastaron con el DOM
+real de ES 13.1.0-r5: `data-tooltip-title` contiene una tabla con la capacidad;
+`diameterContentField` contiene los campos usados/totales. El scanner espera el
+detalle numérico de Visión general antes de capturar el HTML, porque ese panel
+se carga después del marco autenticado. Las pruebas de regresión reproducen
+ese formato y comprueban la prioridad del almacén al alcanzar el umbral tanto
+en ROI como en cola. No se ejecutó una construcción real para esta validación.
+Tras caducar el juego, el bot intenta reutilizar el acceso vigente al Lobby:
+abre la única fila que coincida exactamente con jugador y comunidad, y solo
+reanuda tras verificar el dominio del universo y la identidad dentro del juego.
+Si hay varias coincidencias, el Lobby pide autenticación o el juego no confirma
+el acceso en 30 segundos, espera acceso manual. Este flujo tiene pruebas con
+interfaces simuladas; aún falta comprobar una expulsión nocturna real.

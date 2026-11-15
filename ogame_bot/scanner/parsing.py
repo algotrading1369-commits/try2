@@ -22,7 +22,7 @@ def planet_fields(document: Document) -> Reading[dict[str,int]]:
     panels = document.by_id("planetdata")
     if len(panels)!=1:
         return Reading.unavailable("planet_fields_unknown")
-    rows = panels[0].find(lambda node:node.has_class("fields"))
+    rows = panels[0].find(lambda node:node.has_class("fields") or node.attrs.get("id") == "diameterContentField")
     if len(rows)!=1:
         return Reading.unavailable("planet_fields_unknown")
     matches = re.findall(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)",rows[0].text)
@@ -42,13 +42,21 @@ def storage_capacity(document: Document) -> Reading[dict[str,int]]:
         candidates = {parse_integer(node.attrs[key]) for node in nodes for key in ("data-max","data-storage","data-capacity") if key in node.attrs}
         for box in document.by_id(resource+"_box"):
             for node in box.walk():
-                for attr in ("title","data-tooltip-content"):
+                for attr in ("title","data-tooltip-content","data-tooltip-title"):
                     tooltip = node.attrs.get(attr,"")
                     if len(tooltip)>20000:
                         continue
-                    text = Document(tooltip).root.text if "<" in tooltip else tooltip
-                    for match in re.finditer(r"(?:Capacidad de almacenamiento|Capacidad del almac[eé]n|Almacenamiento m[aá]ximo|Storage capacity)\s*:?\s*((?:[0-9]{1,3}(?:[. ][0-9]{3})+|[0-9]+))(?![.,0-9])",text,re.IGNORECASE):
-                        candidates.add(parse_integer(match.group(1)))
+                    label = r"(?:Capacidad de almacenamiento|Capacidad del almac[eé]n|Almacenamiento m[aá]ximo|Storage capacity)"
+                    if "<" in tooltip:
+                        # Cada cifra pertenece a su fila: no confundir reserva,
+                        # producción o camuflaje con el límite del almacén.
+                        for row in Document(tooltip).root.find(lambda item: item.tag == "tr"):
+                            cells = [item for item in row.children if isinstance(item, Node) and item.tag in {"td", "th"}]
+                            if len(cells) == 2 and re.fullmatch(label+r"\s*:?", cells[0].text, re.IGNORECASE):
+                                candidates.add(parse_integer(cells[1].text))
+                    else:
+                        for match in re.finditer(label+r"\s*:?\s*((?:[0-9]{1,3}(?:[. ][0-9]{3})+|[0-9]+))(?![.,0-9A-Za-z])",tooltip,re.IGNORECASE):
+                            candidates.add(parse_integer(match.group(1)))
         if len(nodes)!=1 or len(candidates)!=1 or None in candidates or next(iter(candidates),0)<=0:
             issues.append("storage_capacity_unknown_"+resource)
         else:

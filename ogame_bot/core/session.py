@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from enum import Enum
@@ -123,6 +124,63 @@ class SessionManager:
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             await self._recover()
 
+    async def _resume_from_lobby(self) -> bool:
+        """Use an existing Lobby login; never submit credentials or challenges.
+
+        The visible row may not expose the server number. Only a unique exact
+        player/community match can be opened; the resulting game hostname and
+        player identity must then pass the normal checks before resuming.
+        """
+        page = self.page
+        if page is None:
+            return False
+        parsed = urlsplit(page.url)
+        if parsed.scheme != "https" or parsed.netloc != "lobby.ogame.gameforge.com":
+            return False
+        try:
+            if not parsed.path.endswith("/accounts"):
+                link = page.get_by_role("link", name="Jugar", exact=True)
+                if await link.count() != 1 or not await link.is_visible():
+                    return False
+                await self._interruptible_read(link.click())
+            player = page.locator(".player-cell").filter(
+                has_text=re.compile(r"^\s*" + re.escape(self.config.expected_player_name) + r"\s*$")
+            )
+            rows = page.get_by_role("row").filter(has=player).filter(
+                has=page.locator(".country-cell .flag-" + self.config.community)
+            )
+            try:
+                await self._interruptible_read(rows.first.wait_for(state="visible", timeout=5000))
+            except Error:
+                return False
+            if await rows.count() != 1:
+                return False
+            button = rows.get_by_role("button", name="Jugar", exact=True)
+            if await button.count() != 1 or not await button.is_visible() or not await button.is_enabled():
+                return False
+            await self._interruptible_read(button.click())
+            deadline = time.monotonic() + min(30, self.config.manual_login_timeout_seconds)
+            while time.monotonic() < deadline:
+                self._check_open()
+                candidate = await self._find_authenticated_page()
+                if candidate is not None:
+                    # Otra pestaña puede conservar un DOM autenticado antiguo.
+                    # Validar de nuevo contra el servidor antes de darla por viva.
+                    await self._navigate(candidate, self.config.overview_url)
+                    await self._interruptible_read(candidate.locator("#playerName").wait_for(state="visible", timeout=5000))
+                    if not await self._identity(candidate):
+                        return False
+                    self.page = candidate
+                    self.state = SessionState.READY
+                    self.authentication_generation += 1
+                    logger.info("Acceso recuperado desde el Lobby; universo e identidad verificados.")
+                    return True
+                await self._interruptible_wait(1)
+        except Error:
+            if self._closed:
+                raise BrowserClosed("Navegador cerrado durante la recuperación del Lobby.") from None
+        return False
+
     async def _recover(self) -> None:
         self.state = SessionState.RECONNECTING
         for attempt in range(self.config.max_reconnect_attempts):
@@ -140,9 +198,11 @@ class SessionManager:
                     self.state = SessionState.READY
                     logger.info("Conexión e identidad verificadas.")
                     return
-                # No automatizar formularios, desafíos o selectores del Lobby no comprobados.
-                if not self.is_game_url(self.page.url):
-                    await self._navigate(self.page, self.config.lobby_url)
+                # La cookie del Lobby puede seguir vigente tras caducar el juego.
+                # También salir de la página standalone de sesión expirada.
+                await self._navigate(self.page, self.config.lobby_url)
+                if await self._resume_from_lobby():
+                    return
                 await self._wait_for_manual_login()
                 return
             except (Error, ConnectionLost):

@@ -1,6 +1,8 @@
 """Adaptador de lectura DOM aislado de los cálculos y la persistencia."""
 from __future__ import annotations
 
+import re
+
 from playwright.async_api import Error, Page
 
 from ...core.session import SessionManager
@@ -38,7 +40,13 @@ class OGameReader:
 
     async def capture(self, component: str, body_id: int | None = None, *, expand_events: bool = False) -> Document:
         async with self.session.read_page(component, body_id) as page:
-            if component == "fleetdispatch":
+            if component == "overview":
+                # El marco autenticado aparece antes del detalle AJAX del planeta.
+                # Esperar datos numéricos evita capturar el marcador inicial «1_».
+                await page.locator("#planetdata #diameterContentField, #planetdata .fields").filter(
+                    has_text=re.compile(r"\d+\s*/\s*\d+")
+                ).first.wait_for(state="attached")
+            elif component == "fleetdispatch":
                 # Un planeta sin naves no tiene tarjetas technology.
                 await page.locator('.technology[data-technology], #warning p').first.wait_for(state="attached")
             elif component in {"supplies", "facilities", "research", "shipyard"}:
