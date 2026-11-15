@@ -655,7 +655,7 @@ Opciones no secretas (opcionales y compatibles con configuraciones anteriores):
 ```yaml
 session:
   auto_login: false
-  login_retry_seconds: 300  # mínimo 60; máximo tres envíos por proceso
+  login_retry_seconds: 300  # mínimo 60; máximo tres intentos fallidos consecutivos
 ```
 
 El fragmento añade opciones a la sección existente, no sustituye sus otros

@@ -160,6 +160,11 @@ Tras una caída del hijo, el supervisor mantiene el panel y vuelve a iniciar el
 bot con espera creciente. Una caída del supervisor se recupera con systemd.
 Las órdenes preparadas o inciertas conservan las protecciones del diario.
 Esto no garantiza que el juego acepte el acceso ni que un CAPTCHA se resuelva.
+Si el proceso termina porque requiere acceso manual o hay un error de cuenta,
+diario o configuración, el supervisor conserva la parada para que lo revises:
+no reinicia indefinidamente los intentos con credenciales rechazadas. Después
+de resolverlo, vuelve a pulsar Iniciar. Los accesos correctos restablecen el
+presupuesto de fallos consecutivos para permitir renovaciones futuras.
 
 Prueba una parada e inicio desde el panel, una desconexión del juego, un reinicio
 del servicio y finalmente un reinicio del VPS. Revisa órdenes y registros antes

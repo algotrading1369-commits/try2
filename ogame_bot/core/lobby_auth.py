@@ -150,6 +150,7 @@ class LobbyAuthenticator:
                 if await verification_required(page):
                     return self._pause('verification_required')
                 if await visible(page.get_by_role('link', name='Jugar', exact=True)):
+                    self.attempts = 0
                     self.status = 'authenticated'
                     return True
                 for current in page.frames:

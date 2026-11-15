@@ -58,6 +58,7 @@ class VPSPanelService(PanelService):
                 raise PanelError('El bot ya está activo.', 409)
             self._intent(True, mode)
             self.next_restart = 0.0
+            self.restart_failures = 0
             return self._launch()
 
     def _launch(self) -> dict[str, str]:
@@ -84,6 +85,10 @@ class VPSPanelService(PanelService):
             if status['owned_running'] or status['external_running']:
                 if self.child_started_at is not None and current-self.child_started_at >= 600:
                     self.restart_failures = 0
+                return
+            if self.process is not None and status['exit_code'] == 2:
+                self._intent(False, self.desired_mode)
+                logger.error('Acceso o configuración requieren intervención. Bot detenido hasta que lo revises e inicies desde el panel.')
                 return
             if self.child_started_at is not None and not self.last_exit_reported:
                 self.restart_failures += 1

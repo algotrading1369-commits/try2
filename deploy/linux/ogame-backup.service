@@ -4,6 +4,7 @@ ConditionPathExists=/var/lib/ogame/config.yaml
 
 [Service]
 Type=oneshot
+WorkingDirectory=/opt/ogame
 ExecStart=/opt/ogame/.venv/bin/python -m ogame_bot.vps_backup
 UMask=0077
 NoNewPrivileges=true

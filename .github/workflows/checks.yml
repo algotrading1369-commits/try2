@@ -40,4 +40,7 @@ jobs:
           fi
           python -c "import json; d=json.load(open('/tmp/ogame-panel-smoke.json')); assert not d['process']['owned_running']; assert d['application']=='ogame-local-panel'"
           sudo -u ogame env -i PATH=/usr/bin:/bin HOME=/var/lib/ogame XDG_CONFIG_HOME=/var/lib/ogame/.config XDG_CACHE_HOME=/var/lib/ogame/.cache XDG_RUNTIME_DIR=/run/ogame DISPLAY=:99 XAUTHORITY=/run/ogame-display/Xauthority PLAYWRIGHT_BROWSERS_PATH=/opt/ogame/browsers /usr/bin/setpriv --no-new-privs /opt/ogame/.venv/bin/python /opt/ogame/tests/smoke_linux_browser.py
-          sudo systemctl start ogame-backup.service
+          if ! sudo systemctl start ogame-backup.service; then
+            sudo journalctl -u ogame-backup.service -n 40 --no-pager
+            exit 1
+          fi

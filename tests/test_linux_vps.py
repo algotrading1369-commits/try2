@@ -8,17 +8,18 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import io
 from dataclasses import replace
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import yaml
 
 from ogame_bot.config import load_config
 from ogame_bot.credentials import CredentialError, LoginCredentials, credential_target
-from ogame_bot.errors import CoreError
+from ogame_bot.errors import CoreError, ConfigurationError, IdentityMismatch, JournalAccountMismatch, LoginRequired
 from ogame_bot.linux_credentials import CREDENTIAL_ID, SystemdCredentialStore
 from ogame_bot.panel_service import PanelError
 from ogame_bot.vps import VPSPanelService
@@ -46,6 +47,17 @@ class VPSConfigurationTests(unittest.TestCase):
             self.assertEqual(config.brain.journal_file, Path(directory) / 'runtime' / 'orders.sqlite3')
             with self.assertRaises(CoreError):
                 prepare_config(ROOT / 'config.example.yaml', target)
+
+    def test_cli_classifies_errors_requiring_intervention(self) -> None:
+        from ogame_bot.__main__ import main
+        config = load_config(ROOT / 'config.example.yaml')
+        for error in (ConfigurationError, IdentityMismatch, JournalAccountMismatch, LoginRequired, CoreError):
+            with self.subTest(error=error.__name__), patch('sys.argv', ['ogame_bot']), \
+                    patch('ogame_bot.__main__.load_config', return_value=config), \
+                    patch('ogame_bot.__main__.setup_logging'), \
+                    patch('ogame_bot.app.run', new_callable=AsyncMock, side_effect=error('synthetic failure')), \
+                    patch('sys.stdout', new_callable=io.StringIO):
+                self.assertEqual(main(), 1 if error is CoreError else 2)
 
 
 class VPSSupervisionTests(unittest.TestCase):
@@ -108,6 +120,15 @@ class VPSSupervisionTests(unittest.TestCase):
         self.assertEqual(len(self.children), 1)
         with self.assertRaises(PanelError):
             self.service.start('arbitrary-command')
+
+    def test_intervention_exit_is_not_retried_after_reboot(self) -> None:
+        self.service.start()
+        self.children[0].poll.return_value = 2
+        self.service.supervise_once()
+        self.assertFalse(self.service.desired_running)
+        restored = VPSPanelService(self.path)
+        self.assertFalse(restored.desired_running)
+        self.assertEqual(len(self.children), 1)
 
     def test_shutdown_preserves_running_intent_for_reboot(self) -> None:
         self.service.start()
@@ -254,3 +275,5 @@ class DeploymentContractTests(unittest.TestCase):
         viewer = (ROOT / 'deploy/linux/view_browser.sh').read_text()
         self.assertIn('-listen 127.0.0.1', viewer)
         self.assertIn('-rfbauth', viewer)
+        backup = (ROOT / 'deploy/linux/ogame-backup.service').read_text()
+        self.assertIn('WorkingDirectory=/opt/ogame', backup)

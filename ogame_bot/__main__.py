@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from .config import Config, load_config
-from .errors import BrowserClosed, CoreError
+from .errors import BrowserClosed, CoreError, ConfigurationError, IdentityMismatch, JournalAccountMismatch, LoginRequired
 
 
 def setup_logging(config: Config) -> None:
@@ -73,7 +73,7 @@ def main() -> int:
         return 0
     except CoreError as error:
         print(f"Detenido: {error}")
-        return 1
+        return 2 if isinstance(error, (ConfigurationError, IdentityMismatch, JournalAccountMismatch, LoginRequired)) else 1
     except (ImportError, OSError):
         print("No se pudo iniciar: comprueba dependencias, permisos y navegador instalado.")
         return 1

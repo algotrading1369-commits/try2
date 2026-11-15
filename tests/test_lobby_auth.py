@@ -81,6 +81,14 @@ class LobbyAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.auth.attempt(self.session))
         self.store_mock.assert_not_called()
 
+    async def test_successful_renewal_resets_consecutive_failure_budget(self) -> None:
+        self.auth.attempts = 2
+        self.assertTrue(await self.auth.attempt(self.session))
+        self.assertEqual(self.auth.attempts, 0)
+        self.auth.next_attempt = 0
+        self.assertTrue(await self.auth.attempt(self.session))
+        self.assertEqual(self.submit.click.await_count, 2)
+
     async def test_untrusted_page_never_reads_or_fills_credentials(self) -> None:
         self.page.url = 'https://evil.example/'
         self.assertFalse(await self.auth.attempt(self.session))
