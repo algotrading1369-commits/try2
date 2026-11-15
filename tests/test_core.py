@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from playwright.async_api import Error, Route
+from playwright.async_api import Error, Route, TimeoutError as PlaywrightTimeout
 
 from ogame_bot.config import load_config
 from ogame_bot.core.browser import BrowserManager
@@ -87,6 +87,7 @@ class SessionLogicTests(unittest.IsolatedAsyncioTestCase):
         await self.session.connect()
         self.assertEqual(self.session.state, SessionState.READY)
         self.page.goto.assert_awaited_once()
+        self.assertEqual(self.session.authentication_generation, 1)
 
     async def test_passive_health_check_does_not_navigate_healthy_session(self) -> None:
         self.session.page = self.page
@@ -217,6 +218,15 @@ class SessionLogicTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ReadError):
             async with self.session.read_page("supplies", 101):
                 self.fail("El componente overview no debe aceptarse como supplies")
+
+    async def test_expired_same_origin_page_requests_recovery_after_identity_timeout(self) -> None:
+        await self.session.connect()
+        self.locator.wait_for.side_effect = PlaywrightTimeout('synthetic expired game page')
+        with self.assertRaises(LoginRequired):
+            async with self.session.read_page('overview'):
+                self.fail('An expired same-origin page must not reach the scanner')
+        self.assertEqual(self.session.state, SessionState.WAITING_LOGIN)
+        self.assertFalse(self.session.action_lock.locked())
 
 
 @unittest.skipUnless(os.environ.get("OGAME_BROWSER_TESTS") == "1", "Pruebas de navegador optativas: OGAME_BROWSER_TESTS=1")

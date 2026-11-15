@@ -620,3 +620,15 @@ reanuda tras verificar el dominio del universo y la identidad dentro del juego.
 Si hay varias coincidencias, el Lobby pide autenticación o el juego no confirma
 el acceso en 30 segundos, espera acceso manual. Este flujo tiene pruebas con
 interfaces simuladas; aún falta comprobar una expulsión nocturna real.
+
+La recuperación espera hasta 15 segundos a que se rendericen el enlace Jugar y
+la tabla de cuentas del Lobby. Si el primer intento no encuentra la interfaz,
+se mantienen los reintentos durante la ventana de acceso, separados por 15
+segundos, en lugar de esperar exclusivamente una entrada manual. El registro
+indica qué paso falta mediante `Reconexión del Lobby pendiente`. Una caducidad
+que conserva el dominio del juego también solicita reconexión cuando no se
+puede verificar la identidad. Tras recuperar el acceso, se programa una nueva
+lectura completa y se comprueba defensa antes de continuar la automatización.
+Durante la ejecución continua, un intento fallido de reconexión devuelve el
+control al scheduler para programar el siguiente intento y actualizar su estado;
+no retiene el bloqueo del navegador esperando diez minutos de acceso manual.

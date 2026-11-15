@@ -10,7 +10,7 @@ from enum import Enum
 from typing import AsyncIterator, Awaitable, Callable, TypeVar
 from urllib.parse import urlencode, urlsplit, parse_qs
 
-from playwright.async_api import BrowserContext, Error, Page
+from playwright.async_api import BrowserContext, Error, Page, TimeoutError as PlaywrightTimeout
 
 from ..config import Config
 from ..errors import BrowserClosed, ConnectionLost, IdentityMismatch, LoginRequired, ReadError
@@ -40,6 +40,7 @@ class SessionManager:
         self.before_navigation: Callable[[], Awaitable[None]] | None = None
         self._closed = False
         self.transaction_active = False
+        self.lobby_recovery_reason: str | None = None
         context.on("close", self._on_close)
 
     def _on_close(self, *_: object) -> None:
@@ -93,11 +94,13 @@ class SessionManager:
             raise LoginRequired("Sesión no disponible. Ejecuta primero con headless: false.")
         self.state = SessionState.WAITING_LOGIN
         logger.warning(
-            "Inicia sesión manualmente y abre el universo %s, comunidad %s. "
-            "La cuenta debe ser %s. Se admiten las nuevas pestañas del Lobby.",
+            "Acceso pendiente al universo %s, comunidad %s, cuenta %s. "
+            "Se reintentará automáticamente desde el Lobby cada 15 segundos; "
+            "si el Lobby pide autenticación, inicia sesión en el navegador.",
             self.config.server_number, self.config.community, self.config.expected_player_name,
         )
         deadline = time.monotonic() + self.config.manual_login_timeout_seconds
+        next_lobby_retry = time.monotonic() + 15
         while time.monotonic() < deadline:
             self._check_open()
             try:
@@ -108,6 +111,18 @@ class SessionManager:
                     self.authentication_generation += 1
                     logger.info("Sesión e identidad verificadas en el universo configurado.")
                     return
+                if time.monotonic() >= next_lobby_retry:
+                    # Una carga lenta no debe convertir una recuperación
+                    # automática en diez minutos de espera exclusivamente manual.
+                    for lobby in list(self.context.pages):
+                        parsed = urlsplit(lobby.url)
+                        if not lobby.is_closed() and parsed.scheme == "https" and parsed.netloc == "lobby.ogame.gameforge.com":
+                            self.page = lobby
+                            if await self._resume_from_lobby():
+                                return
+                            self.state = SessionState.WAITING_LOGIN
+                            break
+                    next_lobby_retry = time.monotonic() + 15
             except Error:
                 if self._closed:
                     raise BrowserClosed("Navegador cerrado durante el acceso.") from None
@@ -123,6 +138,12 @@ class SessionManager:
                 return
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             await self._recover()
+
+    def _lobby_pending(self, reason: str) -> bool:
+        if reason != self.lobby_recovery_reason:
+            logger.warning("Reconexión del Lobby pendiente: %s.", reason)
+        self.lobby_recovery_reason = reason
+        return False
 
     async def _resume_from_lobby(self) -> bool:
         """Use an existing Lobby login; never submit credentials or challenges.
@@ -140,8 +161,14 @@ class SessionManager:
         try:
             if not parsed.path.endswith("/accounts"):
                 link = page.get_by_role("link", name="Jugar", exact=True)
+                # domcontentloaded solo garantiza el marco de React, no el
+                # enlace que aparece cuando se resuelve la sesión del Lobby.
+                try:
+                    await self._interruptible_read(link.wait_for(state="visible", timeout=15000))
+                except Error:
+                    return self._lobby_pending("play_link_not_ready_or_login_required")
                 if await link.count() != 1 or not await link.is_visible():
-                    return False
+                    return self._lobby_pending("play_link_not_unique_or_visible")
                 await self._interruptible_read(link.click())
             player = page.locator(".player-cell").filter(
                 has_text=re.compile(r"^\s*" + re.escape(self.config.expected_player_name) + r"\s*$")
@@ -150,38 +177,52 @@ class SessionManager:
                 has=page.locator(".country-cell .flag-" + self.config.community)
             )
             try:
-                await self._interruptible_read(rows.first.wait_for(state="visible", timeout=5000))
+                await self._interruptible_read(rows.first.wait_for(state="visible", timeout=15000))
             except Error:
-                return False
+                return self._lobby_pending("account_row_not_ready")
             if await rows.count() != 1:
-                return False
+                return self._lobby_pending("account_row_missing_or_ambiguous")
             button = rows.get_by_role("button", name="Jugar", exact=True)
             if await button.count() != 1 or not await button.is_visible() or not await button.is_enabled():
-                return False
+                return self._lobby_pending("account_play_not_available")
+            previous_pages = list(self.context.pages)
             await self._interruptible_read(button.click())
             deadline = time.monotonic() + min(30, self.config.manual_login_timeout_seconds)
+            checked: set[int] = set()
             while time.monotonic() < deadline:
                 self._check_open()
-                candidate = await self._find_authenticated_page()
-                if candidate is not None:
+                # Preferir la pestaña nueva abierta por Jugar. Un DOM antiguo
+                # de otra pestaña no debe ocultar el resultado de ese acceso.
+                candidates = sorted(list(self.context.pages), key=lambda item: item in previous_pages)
+                for candidate in candidates:
+                    if id(candidate) in checked or not await self._identity(candidate):
+                        continue
+                    checked.add(id(candidate))
                     # Otra pestaña puede conservar un DOM autenticado antiguo.
                     # Validar de nuevo contra el servidor antes de darla por viva.
-                    await self._navigate(candidate, self.config.overview_url)
-                    await self._interruptible_read(candidate.locator("#playerName").wait_for(state="visible", timeout=5000))
+                    try:
+                        await self._navigate(candidate, self.config.overview_url)
+                        await self._interruptible_read(candidate.locator("#playerName").wait_for(state="visible", timeout=5000))
+                    except Error:
+                        if self._closed:
+                            raise BrowserClosed("Navegador cerrado durante la recuperación del Lobby.") from None
+                        continue
                     if not await self._identity(candidate):
-                        return False
+                        continue
                     self.page = candidate
                     self.state = SessionState.READY
                     self.authentication_generation += 1
+                    self.lobby_recovery_reason = None
                     logger.info("Acceso recuperado desde el Lobby; universo e identidad verificados.")
                     return True
                 await self._interruptible_wait(1)
         except Error:
             if self._closed:
                 raise BrowserClosed("Navegador cerrado durante la recuperación del Lobby.") from None
-        return False
+            return self._lobby_pending("lobby_interface_error")
+        return self._lobby_pending("target_game_not_verified")
 
-    async def _recover(self) -> None:
+    async def _recover(self, *, wait_for_manual_login: bool = True) -> None:
         self.state = SessionState.RECONNECTING
         for attempt in range(self.config.max_reconnect_attempts):
             self._check_open()
@@ -196,6 +237,8 @@ class SessionManager:
                         raise BrowserClosed("Navegador cerrado.") from None
                 if await self._identity(self.page):
                     self.state = SessionState.READY
+                    self.authentication_generation += 1
+                    self.lobby_recovery_reason = None
                     logger.info("Conexión e identidad verificadas.")
                     return
                 # La cookie del Lobby puede seguir vigente tras caducar el juego.
@@ -203,6 +246,9 @@ class SessionManager:
                 await self._navigate(self.page, self.config.lobby_url)
                 if await self._resume_from_lobby():
                     return
+                if not wait_for_manual_login:
+                    self.state = SessionState.WAITING_LOGIN
+                    raise LoginRequired("Acceso aún no recuperado; el scheduler volverá a intentar la conexión.")
                 await self._wait_for_manual_login()
                 return
             except (Error, ConnectionLost):
@@ -237,11 +283,11 @@ class SessionManager:
                 except (asyncio.CancelledError, Error):
                     pass
 
-    async def check(self) -> None:
+    async def check(self, *, wait_for_manual_login: bool = False) -> None:
         """Comprueba la sesión contra el servidor, no solo contra un DOM antiguo."""
         async with self.action_lock:
             self._check_open()
-            await self._recover()
+            await self._recover(wait_for_manual_login=wait_for_manual_login)
 
     async def observe(self) -> None:
         """Inspect the current DOM without refreshing a healthy game tab.
@@ -253,7 +299,7 @@ class SessionManager:
             self._check_open()
             if self.state == SessionState.READY and self.page is not None and await self._identity(self.page):
                 return
-            await self._recover()
+            await self._recover(wait_for_manual_login=False)
 
     @asynccontextmanager
     async def read_page(self, component: str, body_id: int | None = None, *, galaxy: int | None = None, system: int | None = None) -> AsyncIterator[Page]:
@@ -280,7 +326,11 @@ class SessionManager:
                 if not self.is_game_url(self.page.url):
                     self.state = SessionState.WAITING_LOGIN
                     raise LoginRequired("El servidor redirigió fuera de la sesión del juego.")
-                await self.page.locator("#playerName").wait_for(state="visible")
+                try:
+                    await self.page.locator("#playerName").wait_for(state="visible")
+                except PlaywrightTimeout:
+                    self.state = SessionState.WAITING_LOGIN
+                    raise LoginRequired("La página del juego no confirma la sesión; se requiere reconexión.") from None
                 if not await self._identity(self.page):
                     self.state = SessionState.WAITING_LOGIN
                     raise LoginRequired("La sesión ha dejado de estar autenticada.")
@@ -306,6 +356,6 @@ class SessionManager:
                 while time.monotonic() < deadline:
                     self._check_open()
                     await asyncio.sleep(min(1, max(0, deadline - time.monotonic())))
-                await self.check()
+                await self.check(wait_for_manual_login=True)
         finally:
             self.state = SessionState.STOPPED

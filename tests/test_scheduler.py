@@ -265,6 +265,41 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         await self.runtime._session()
         self.assertTrue(self.session.defense_paused)
         self.assertLessEqual(self.runtime.scheduler.jobs["defender"].next_due, self.runtime.scheduler.clock())
+        self.assertTrue(self.runtime._read_requested)
+        self.assertTrue(self.runtime._full_scan_requested)
+        self.assertLessEqual(self.runtime.scheduler.jobs["scanner"].next_due, self.runtime.scheduler.clock())
+
+    async def test_reauthentication_wakes_an_idle_scanner_and_preserves_pending_orders(self):
+        self.runtime.latest = snapshot()
+        self.runtime._read_requested = False
+        self.runtime._full_scan_requested = False
+        self.runtime.scheduler.jobs['scanner'].next_due += 3600
+        self.session.state = SessionState.WAITING_LOGIN
+
+        async def recover():
+            self.session.state = SessionState.READY
+            self.session.authentication_generation += 1
+
+        self.session.check.side_effect = recover
+        await self.runtime._session()
+        self.assertTrue(self.runtime._read_requested)
+        self.assertTrue(self.runtime._full_scan_requested)
+        self.assertEqual(self.runtime._snapshot_finished, float('-inf'))
+        self.assertLessEqual(self.runtime.scheduler.jobs['scanner'].next_due, self.runtime.scheduler.clock())
+        self.runtime.brain.process.assert_not_awaited()
+
+    async def test_passive_check_that_recovers_a_session_refreshes_account_state(self):
+        self.runtime._read_requested = False
+        self.runtime._full_scan_requested = False
+
+        async def observe():
+            self.session.authentication_generation += 1
+
+        self.session.observe.side_effect = observe
+        await self.runtime._session()
+        self.assertTrue(self.runtime._read_requested)
+        self.assertTrue(self.runtime._full_scan_requested)
+        self.assertTrue(self.session.defense_paused)
 
     async def test_expired_snapshot_is_refreshed_before_brain(self):
         self.session.defense_paused = False

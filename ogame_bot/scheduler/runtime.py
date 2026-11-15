@@ -180,9 +180,15 @@ class BotRuntime:
             await self.session.observe()
         else:
             await self.session.check()
-        if self.defender is not None and self.config.defender.enabled and (previous_state != SessionState.READY or previous_generation != self.session.authentication_generation):
-            self.session.defense_paused = True
-            self.scheduler.trigger("defender")
+        if self.session.state == SessionState.READY and (previous_state != SessionState.READY or previous_generation != self.session.authentication_generation):
+            self._read_requested = True
+            self._full_scan_requested = True
+            self._snapshot_finished = float("-inf")
+            if "scanner" in self.scheduler.jobs:
+                self.scheduler.trigger("scanner")
+            if self.defender is not None and self.config.defender.enabled:
+                self.session.defense_paused = True
+                self.scheduler.trigger("defender")
 
     def _defender_interval(self) -> tuple[float, float]:
         settings = self.config.defender
