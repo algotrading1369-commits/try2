@@ -647,8 +647,8 @@ No se guarda en YAML, variables de entorno, GitHub o registros, y no se usan
 contraseñas del navegador ni credenciales de otras aplicaciones. Para retirar
 la credencial guardada y desactivar esta función, ejecuta `Desactivar_acceso.bat`.
 La cuenta de Windows que ejecute el bot debe ser la misma que configuró el
-acceso. En otros sistemas se conserva el acceso manual, sin almacenamiento
-alternativo en texto plano.
+acceso. Linux utiliza un proveedor distinto de credenciales cifradas de systemd,
+sin depender del almacén de Windows: consulta [VPS_LINUX.md](VPS_LINUX.md).
 
 Opciones no secretas (opcionales y compatibles con configuraciones anteriores):
 

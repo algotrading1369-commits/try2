@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlsplit
 
 from playwright.async_api import Error, Frame, Locator, Page
 
-from ..credentials import CredentialError, WindowsCredentialStore, credential_target
+from ..credentials import CredentialError, credential_store, credential_target
 
 if TYPE_CHECKING:
     from .session import SessionManager
@@ -120,7 +120,7 @@ class LobbyAuthenticator:
             if not await trusted_form():
                 return self._pause('login_origin_changed')
             try:
-                credentials = WindowsCredentialStore().read(credential_target(config))
+                credentials = credential_store().read(credential_target(config))
             except CredentialError:
                 self.status = 'credential_store_unavailable'
                 return False

@@ -64,7 +64,7 @@ class PanelService:
             digest.update((project / relative).read_bytes())
         for relative in ("fleet/fleetsave.py","fleet/native.py","fleet/models.py","fleet/parsing.py","defender/settings.py","defender/service.py","scheduler/settings.py","adapters/ogame/reader.py"):
             digest.update((project/relative).read_bytes())
-        for relative in ("credentials.py", "core/lobby_auth.py"):
+        for relative in ("credentials.py", "core/lobby_auth.py", "linux_credentials.py", "vps.py", "vps_config.py", "vps_backup.py"):
             digest.update((project / relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None

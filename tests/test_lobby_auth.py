@@ -63,7 +63,7 @@ class LobbyAuthTests(unittest.IsolatedAsyncioTestCase):
         self.challenge = patch('ogame_bot.core.lobby_auth.verification_required', new_callable=AsyncMock, return_value=False)
         self.challenge_mock = self.challenge.start()
         self.addCleanup(self.challenge.stop)
-        self.store = patch('ogame_bot.core.lobby_auth.WindowsCredentialStore')
+        self.store = patch('ogame_bot.core.lobby_auth.credential_store')
         self.store_mock = self.store.start()
         self.addCleanup(self.store.stop)
         self.store_mock.return_value.read.return_value = SECRET

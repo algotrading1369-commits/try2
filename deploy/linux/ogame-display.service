@@ -1,0 +1,19 @@
+[Unit]
+Description=Private virtual display for the OGame browser
+
+[Service]
+Type=simple
+User=ogame
+Group=ogame
+RuntimeDirectory=ogame-display
+RuntimeDirectoryMode=0700
+Environment=DISPLAY=:99
+Environment=XAUTHORITY=/run/ogame-display/Xauthority
+ExecStart=/bin/bash /opt/ogame/deploy/linux/start_display.sh
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
+LimitCORE=0

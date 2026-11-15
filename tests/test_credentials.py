@@ -119,7 +119,7 @@ class CredentialTests(unittest.TestCase):
             path = Path(directory) / 'config.yaml'
             path.write_bytes((ROOT / 'config.example.yaml').read_bytes())
             with patch('sys.argv', ['credentials', 'configure', '--config', str(path)]), \
-                    patch('ogame_bot.credentials.WindowsCredentialStore') as store, \
+                    patch('ogame_bot.credentials.credential_store') as store, \
                     patch('sys.stdin.isatty', return_value=True), \
                     patch('builtins.input', return_value=SECRET.email), \
                     patch('getpass.getpass', return_value=SECRET.password), patch('sys.stdout', new_callable=io.StringIO) as output:
@@ -156,7 +156,7 @@ class CredentialTests(unittest.TestCase):
 
     def test_cli_rejects_noninteractive_configuration_without_reading_password(self) -> None:
         with patch('sys.argv', ['credentials', 'configure', '--config', str(ROOT / 'config.example.yaml')]), \
-                patch('ogame_bot.credentials.WindowsCredentialStore') as store, \
+                patch('ogame_bot.credentials.credential_store') as store, \
                 patch('sys.stdin.isatty', return_value=False), \
                 patch('getpass.getpass') as password, patch('sys.stdout', new_callable=io.StringIO):
             self.assertEqual(main(), 1)
@@ -165,7 +165,7 @@ class CredentialTests(unittest.TestCase):
 
     def test_cli_mismatched_passwords_are_not_stored(self) -> None:
         with patch('sys.argv', ['credentials', 'configure', '--config', str(ROOT / 'config.example.yaml')]), \
-                patch('ogame_bot.credentials.WindowsCredentialStore') as store, \
+                patch('ogame_bot.credentials.credential_store') as store, \
                 patch('sys.stdin.isatty', return_value=True), \
                 patch('builtins.input', return_value=SECRET.email), \
                 patch('getpass.getpass', side_effect=['first', 'second']), patch('sys.stdout', new_callable=io.StringIO):
@@ -174,7 +174,7 @@ class CredentialTests(unittest.TestCase):
 
     def test_status_output_does_not_expose_credentials(self) -> None:
         with patch('sys.argv', ['credentials', 'status', '--config', str(ROOT / 'config.example.yaml')]), \
-                patch('ogame_bot.credentials.WindowsCredentialStore') as store, patch('sys.stdout', new_callable=io.StringIO) as output:
+                patch('ogame_bot.credentials.credential_store') as store, patch('sys.stdout', new_callable=io.StringIO) as output:
             store.return_value.read.return_value = SECRET
             self.assertEqual(main(), 0)
         self.assertNotIn(SECRET.password, output.getvalue())

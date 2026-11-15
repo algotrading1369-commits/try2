@@ -1,4 +1,4 @@
-"""Opt-in Lobby credentials in the current Windows user's Credential Manager.
+"""Opt-in Lobby credentials: Windows Credential Manager or systemd credentials.
 
 No enumeration, plaintext fallback, command-line password, or secret logging.
 Win32 contract: https://learn.microsoft.com/windows/win32/api/wincred/
@@ -11,13 +11,14 @@ import getpass
 import hashlib
 import json
 import os
+import stat
 import sys
 import tempfile
 import warnings
 from ctypes import wintypes
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .config import Config
@@ -139,6 +140,25 @@ class WindowsCredentialStore:
         except OSError:
             raise CredentialError('No se pudo retirar la credencial de Windows.') from None
 
+    def configured(self, target: str) -> bool:
+        return self.read(target) is not None
+
+
+class CredentialStore(Protocol):
+    def read(self, target: str) -> LoginCredentials | None: ...
+    def write(self, target: str, credentials: LoginCredentials) -> None: ...
+    def delete(self, target: str) -> None: ...
+    def configured(self, target: str) -> bool: ...
+
+
+def credential_store() -> CredentialStore:
+    if os.name == 'nt':
+        return WindowsCredentialStore()
+    if sys.platform.startswith('linux'):
+        from .linux_credentials import SystemdCredentialStore
+        return SystemdCredentialStore()
+    raise CredentialError('El acceso automático admite Windows o Linux con systemd.')
+
 
 def set_auto_login(path: Path, enabled: bool) -> None:
     import yaml
@@ -147,10 +167,14 @@ def set_auto_login(path: Path, enabled: bool) -> None:
     temporary: str | None = None
     try:
         raw = yaml.safe_load(path.read_text(encoding='utf-8'))
+        original = path.stat()
         raw['session']['auto_login'] = enabled
         raw['session'].setdefault('login_retry_seconds', 300)
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.resolve().parent, suffix='.yaml', delete=False) as output:
             temporary = output.name
+            if os.name == 'posix':
+                os.fchmod(output.fileno(), stat.S_IMODE(original.st_mode))
+                os.fchown(output.fileno(), original.st_uid, original.st_gid)
             yaml.safe_dump(raw, output, allow_unicode=True, sort_keys=False)
         load_config(Path(temporary))
         os.replace(temporary, path)
@@ -164,27 +188,27 @@ def set_auto_login(path: Path, enabled: bool) -> None:
 def main() -> int:
     from .config import load_config
     from .errors import CoreError
-    parser = argparse.ArgumentParser(description='Acceso al Lobby guardado exclusivamente en Windows.')
+    parser = argparse.ArgumentParser(description='Acceso al Lobby protegido por Windows o systemd.')
     parser.add_argument('command', choices=('configure', 'status', 'remove'))
     parser.add_argument('--config', type=Path, default=Path(__file__).resolve().parents[1] / 'config.yaml')
     args = parser.parse_args()
     try:
         config = load_config(args.config)
-        store = WindowsCredentialStore()
+        store = credential_store()
         target = credential_target(config)
         if args.command == 'status':
-            present = store.read(target) is not None
+            present = store.configured(target)
             print('Credenciales guardadas: ' + ('sí' if present else 'no'))
             print('Acceso automático activado: ' + ('sí' if config.auto_login else 'no'))
         elif args.command == 'remove':
             set_auto_login(args.config, False)
             store.delete(target)
-            print('Acceso automático desactivado y credencial retirada de Windows.')
+            print('Acceso automático desactivado y credencial retirada del almacén local. Reinicia el servicio si está activo.')
         else:
             if not sys.stdin.isatty():
-                raise CredentialError('Abre Configurar_acceso.bat en una consola local interactiva.')
+                raise CredentialError('Abre el asistente de acceso en una consola interactiva.')
             print('Estas credenciales solo se usarán para iniciar sesión en el Lobby oficial de OGame.')
-            print('Se guardarán en el Administrador de credenciales de tu usuario de Windows.')
+            print('Se guardarán en Windows Credential Manager o cifradas para el servicio systemd de este equipo.')
             email = input('Correo de Gameforge: ').strip()
             with warnings.catch_warnings():
                 warnings.simplefilter('error', getpass.GetPassWarning)

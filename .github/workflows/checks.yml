@@ -4,7 +4,7 @@ permissions:
   contents: read
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,3 +14,29 @@ jobs:
       - run: python -m compileall -q ogame_bot tests
       - run: python -m ogame_bot --config config.example.yaml --check-config
       - run: python -m unittest discover -s tests -v
+      - name: Check Linux installer syntax
+        run: for script in deploy/linux/*.sh; do bash -n "$script"; done
+      - name: Verify native systemd credential encryption with synthetic data
+        run: sudo env OGAME_SYSTEMD_TESTS=1 "$(command -v python)" -m unittest discover -s tests -p test_linux_vps.py -v
+      - name: Smoke test Ubuntu VPS installation without starting the game bot
+        run: |
+          sudo bash deploy/linux/install.sh
+          cd /opt/ogame
+          sudo .venv/bin/python -m ogame_bot.vps_config config.example.yaml /var/lib/ogame/config.yaml
+          sudo chown ogame:ogame /var/lib/ogame/config.yaml
+          sudo systemctl start ogame.service
+          trap 'sudo systemctl stop ogame.service ogame-display.service' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18765/api/state > /tmp/ogame-panel-smoke.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            sudo journalctl -u ogame.service -u ogame-display.service -n 60 --no-pager
+            exit 1
+          fi
+          python -c "import json; d=json.load(open('/tmp/ogame-panel-smoke.json')); assert not d['process']['owned_running']; assert d['service']=='ogame-local-panel'"
+          sudo systemctl start ogame-backup.service

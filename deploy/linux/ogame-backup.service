@@ -1,0 +1,11 @@
+[Unit]
+Description=Private local OGame state backup
+ConditionPathExists=/var/lib/ogame/config.yaml
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ogame/.venv/bin/python -m ogame_bot.vps_backup
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full

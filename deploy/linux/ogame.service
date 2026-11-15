@@ -1,0 +1,37 @@
+[Unit]
+Description=ORBIT private panel and OGame supervisor
+Wants=network-online.target
+Requires=ogame-display.service
+After=network-online.target ogame-display.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=ogame
+Group=ogame
+WorkingDirectory=/opt/ogame
+Environment=HOME=/var/lib/ogame
+Environment=DISPLAY=:99
+Environment=XAUTHORITY=/run/ogame-display/Xauthority
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/ogame/browsers
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+LoadCredentialEncrypted=ogame-lobby
+ExecStartPre=/bin/bash /opt/ogame/deploy/linux/wait_display.sh
+ExecStart=/opt/ogame/.venv/bin/python -m ogame_bot.vps --config /var/lib/ogame/config.yaml --port 18765
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

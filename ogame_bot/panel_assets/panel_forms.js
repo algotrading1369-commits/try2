@@ -56,7 +56,7 @@ const moduleDefinitions = [
  ['fleet.reserved_slots','Slots que deben quedar libres','number',0],['fleet.deuterium_reserve','Reserva de deuterio de flotas','number',0],['fleet.maximum_fuel','Combustible máximo por envío','number',1],
  ['fleet.maximum_oneway_seconds','Duración máxima de ida (s)','number',1],['fleet.speed_percent','Velocidad de flotas (%)','speed'],['fleet.capacities','Capacidades verificadas por nave (JSON)','json']]],
  ['Sesión y tiempos',[
-   ['session.auto_login','Iniciar sesión automáticamente (configura antes Configurar_acceso.bat)','bool'],['session.login_retry_seconds','Espera mínima entre intentos de contraseña (s)','number',60],
+   ['session.auto_login','Iniciar sesión automáticamente (configura antes el asistente de acceso de Windows o Linux)','bool'],['session.login_retry_seconds','Espera mínima entre intentos de contraseña (s)','number',60],
  ['scheduler.isolate_failures','Recuperar módulos con errores transitorios sin detener los demás','bool'],['session.manual_login_timeout_seconds','Plazo para acceso manual (s)','number',1],['session.health_check_seconds','Comprobación pasiva de sesión (s)','number',1],['session.max_reconnect_attempts','Intentos de reconexión','number',1],
  ['session.initial_backoff_seconds','Espera inicial de reconexión (s)','number',0.1],['session.max_backoff_seconds','Espera máxima de reconexión (s)','number',0.1],
  ['timing.min_delay_seconds','Pausa mínima entre acciones (s)','number',0],['timing.max_delay_seconds','Pausa máxima entre acciones (s)','number',0]]],
