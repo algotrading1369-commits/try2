@@ -21,7 +21,7 @@ class Scanner:
     def __init__(self, reader: OGameReader, config: Config) -> None:
         self.reader = reader
         self.config = config
-        self.shipyard_required = config.brain.shipyard_enabled
+        self.shipyard_required = config.brain.shipyard_enabled or (config.brain.builder_enabled and config.brain.auto_solar and config.brain.energy_source == "solar_satellite")
 
     async def _document(self, component: str, body_id: int | None = None, *, expand_events: bool = False) -> Document | None:
         try:
@@ -35,6 +35,8 @@ class Scanner:
         overview = await self._document("overview", body_id)
         snapshot.resources = parsing.resources(overview) if overview else Reading.unavailable("overview_read_failed")
         snapshot.temperature = parsing.planet_temperature(overview) if overview else Reading.unavailable("overview_read_failed")
+        snapshot.fields = parsing.planet_fields(overview) if overview else Reading.unavailable("overview_read_failed")
+        snapshot.storage_capacity = parsing.storage_capacity(overview) if overview else Reading.unavailable("overview_read_failed")
         if snapshot.body.kind == "planet":
             supplies = await self._document("supplies", body_id)
             snapshot.buildings = parsing.technologies(supplies, parsing.BUILDINGS) if supplies else Reading.unavailable("supplies_read_failed")
@@ -45,7 +47,7 @@ class Scanner:
         catalog = {identifier: name for identifier, name in parsing.FACILITIES.items() if identifier in ({14, 21, 41, 42, 43} if snapshot.body.kind == "moon" else {14, 15, 21, 31, 33, 34, 36, 44, 45})}
         snapshot.facilities = parsing.technologies(facilities, catalog) if facilities else Reading.unavailable("facilities_read_failed")
         fleet = await self._document("fleetdispatch", body_id)
-        snapshot.ships = parsing.technologies(fleet, parsing.SHIPS, fleet=True) if fleet else Reading.unavailable("fleet_read_failed")
+        snapshot.ships = parsing.technologies(fleet, {identifier:name for identifier,name in parsing.SHIPS.items() if identifier != 212}, fleet=True) if fleet else Reading.unavailable("fleet_read_failed")
         if self.shipyard_required and snapshot.body.kind == "planet":
             hangar = await self._document("shipyard", body_id)
             snapshot.shipyard_queue = parsing.queue_state(hangar, shipyard=True) if hangar else Reading.unavailable("shipyard_read_failed")
@@ -104,8 +106,14 @@ class Scanner:
         planets = [body for body in snapshot.bodies[:self.config.scanner_max_bodies] if body.body.kind == "planet"]
         final_document: Document | None = None
         for body in planets:
+            if self.config.brain.builder_enabled:
+                overview = await self._document("overview",body.body.id)
+                body.fields = parsing.planet_fields(overview) if overview else Reading.unavailable("overview_read_failed")
+                if overview is not None:
+                    body.temperature = parsing.planet_temperature(overview)
             supplies = await self._document("supplies", body.body.id)
             body.resources = parsing.resources(supplies) if supplies else Reading.unavailable("supplies_read_failed")
+            body.storage_capacity = parsing.storage_capacity(supplies) if supplies else Reading.unavailable("supplies_read_failed")
             body.buildings = parsing.technologies(supplies, parsing.BUILDINGS) if supplies else Reading.unavailable("supplies_read_failed")
             body.construction_queue = parsing.queue_state(supplies) if supplies else Reading.unavailable("queue_read_failed")
             final_document = supplies
@@ -137,3 +145,4 @@ class Scanner:
         body = next((body for body in snapshot.bodies if body.body.id == body_id), None)
         if body is not None:
             body.resources = parsing.resources(document)
+            body.storage_capacity = parsing.storage_capacity(document)

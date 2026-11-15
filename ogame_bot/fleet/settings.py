@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,7 @@ from ..errors import ConfigurationError
 from .models import SHIP_IDS
 
 SELECTOR_KEYS = {"ship_input", "continue_2", "continue_3", "galaxy", "system", "position", "target_type", "speed", "mission", "holding", "resource_input", "fuel", "capacity", "flight_seconds", "send"}
+FLEETSAVE_DEFAULTS = {"enabled":False,"live":False,"plan_id":"manual-save","origin_id":None,"destination_id":None,"run_at":None,"speed_percent":10,"minimum_flight_seconds":3600,"resource_policy":"maximize_value"}
 
 
 @dataclass(frozen=True)
@@ -28,11 +29,12 @@ class FleetSettings:
     transports: dict[str, Any]
     recycling: dict[str, Any]
     selectors: dict[str, str]
+    fleetsave: dict[str, Any] = field(default_factory=lambda: dict(FLEETSAVE_DEFAULTS))
 
 
 def load_fleet_settings(raw: Any, base: Path) -> FleetSettings:
     keys = {"enabled", "plan_file", "min_interval_seconds", "max_interval_seconds", "reserved_slots", "deuterium_reserve", "maximum_fuel", "maximum_oneway_seconds", "speed_percent", "capacities", "expeditions", "transports", "recycling", "selectors"}
-    if not isinstance(raw, dict) or set(raw) != keys:
+    if not isinstance(raw, dict) or set(raw)-{"fleetsave"} != keys:
         raise ConfigurationError("Campos incorrectos en fleet.")
 
     def integer(value: Any, name: str, minimum: int = 0) -> int:
@@ -60,11 +62,39 @@ def load_fleet_settings(raw: Any, base: Path) -> FleetSettings:
         "recycling": {"enabled", "origins", "radius_systems", "minimum_debris", "max_systems_per_cycle"},
     }
     for name, expected in subkeys.items():
-        optional = {"live", "composition_mode", "manual_ships"} if name == "expeditions" else set()
+        optional = {"live", "composition_mode", "manual_ships"} if name == "expeditions" else {"live"}
         if not isinstance(raw[name], dict) or not expected <= set(raw[name]) or set(raw[name]) - expected - optional:
             raise ConfigurationError(f"Campos incorrectos en fleet.{name}.")
         boolean(raw[name]["enabled"], name + ".enabled")
     expo, transport, recycling = (dict(raw[name]) for name in ("expeditions", "transports", "recycling"))
+    for name,section in (("transports",transport),("recycling",recycling)):
+        section.setdefault("live",False)
+        boolean(section["live"],name+".live")
+    if not isinstance(raw.get("fleetsave",FLEETSAVE_DEFAULTS),dict):
+        raise ConfigurationError("fleet.fleetsave debe ser un objeto.")
+    save = dict(raw.get("fleetsave", FLEETSAVE_DEFAULTS))
+    if set(save) != set(FLEETSAVE_DEFAULTS):
+        raise ConfigurationError("Campos incorrectos en fleet.fleetsave.")
+    import re
+    if not isinstance(save["plan_id"],str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}",save["plan_id"]):
+        raise ConfigurationError("plan_id de fleetsave inválido.")
+    boolean(save["enabled"],"fleetsave.enabled")
+    boolean(save["live"],"fleetsave.live")
+    for key in ("origin_id","destination_id"):
+        if save[key] is not None:
+            integer(save[key],"fleetsave."+key,1)
+    if save["enabled"] and (save["origin_id"] is None or save["destination_id"] is None or save["origin_id"]==save["destination_id"]):
+        raise ConfigurationError("FleetSave requiere origen y destino propios distintos.")
+    if type(save["speed_percent"]) is not int or save["speed_percent"] not in range(10,101,10) or save["resource_policy"] not in {"maximize_value","require_all"}:
+        raise ConfigurationError("Velocidad o política de fleetsave inválida.")
+    integer(save["minimum_flight_seconds"],"fleetsave.minimum_flight_seconds",1)
+    if save["run_at"] is not None:
+        from datetime import datetime
+        try:
+            if not isinstance(save["run_at"],str) or datetime.fromisoformat(save["run_at"]).tzinfo is None:
+                raise ValueError("timezone")
+        except ValueError as error:
+            raise ConfigurationError("FleetSave run_at requiere fecha ISO con zona horaria.") from error
     expo.setdefault("live", False)
     expo.setdefault("composition_mode", "automatic")
     expo.setdefault("manual_ships", {})
@@ -141,4 +171,4 @@ def load_fleet_settings(raw: Any, base: Path) -> FleetSettings:
     return FleetSettings(boolean(raw["enabled"], "enabled"), (base / raw["plan_file"]).resolve(), minimum, maximum,
         integer(raw["reserved_slots"], "reserved_slots"), integer(raw["deuterium_reserve"], "deuterium_reserve"),
         integer(raw["maximum_fuel"], "maximum_fuel", 1), integer(raw["maximum_oneway_seconds"], "maximum_oneway_seconds", 1),
-        speed, dict(capacities), expo, transport, recycling, dict(selectors))
+        speed, dict(capacities), expo, transport, recycling, dict(selectors), save)

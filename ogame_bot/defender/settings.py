@@ -30,6 +30,7 @@ class DefenderSettings:
     idle_max_seconds: float
     alert_min_seconds: float
     alert_max_seconds: float
+    live: bool = False
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class TelegramSettings:
 
 def load_defender_settings(raw: Any, telegram: Any, base: Path) -> tuple[DefenderSettings, TelegramSettings]:
     keys = {"enabled", "report_file", "origins", "destinations", "mission", "speed_percent", "trigger_seconds", "minimum_lead_seconds", "max_state_age_seconds", "minimum_flight_seconds", "maximum_flight_seconds", "maximum_fuel", "resource_policy", "pause_on_unknown", "idle_min_seconds", "idle_max_seconds", "alert_min_seconds", "alert_max_seconds"}
-    if not isinstance(raw, dict) or set(raw) != keys:
+    if not isinstance(raw, dict) or set(raw)-{"live"} != keys:
         raise ConfigurationError("Campos incorrectos en defender.")
     if not isinstance(telegram, dict) or set(telegram) != {"enabled", "token_env", "chat_id_env", "timeout_seconds", "cooldown_seconds", "state_file"}:
         raise ConfigurationError("Campos incorrectos en telegram.")
@@ -94,4 +95,5 @@ def load_defender_settings(raw: Any, telegram: Any, base: Path) -> tuple[Defende
         number(raw["minimum_flight_seconds"], integer=True), number(raw["maximum_flight_seconds"], integer=True), number(raw["maximum_fuel"], integer=True),
         raw["resource_policy"], boolean(raw["pause_on_unknown"]),
         number(raw["idle_min_seconds"]), number(raw["idle_max_seconds"]), number(raw["alert_min_seconds"]), number(raw["alert_max_seconds"]),
+        live=boolean(raw.get("live",False)),
     ), TelegramSettings(boolean(telegram["enabled"]), telegram["token_env"], telegram["chat_id_env"], number(telegram["timeout_seconds"]), number(telegram["cooldown_seconds"]), path(telegram["state_file"]))

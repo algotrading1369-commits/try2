@@ -106,6 +106,16 @@ class OrderJournal:
                 total += action.quantity
         return total
 
+    def fleetsave_completed(self, plan_id: str) -> bool:
+        for row in self.connection.execute("SELECT action FROM orders WHERE scope='fleet' AND state='confirmed'"):
+            try:
+                action = Flight.from_dict(json.loads(row["action"]))
+            except (ValueError,TypeError,KeyError) as error:
+                raise CoreError("No se pudo verificar el historial de fleetsave.") from error
+            if action.purpose == "fleetsave" and action.plan_id == plan_id:
+                return True
+        return False
+
     def pending(self, scope: str | None = None) -> tuple[str, Upgrade | Flight] | None:
         if scope not in {None, "upgrade", "fleet"}:
             raise ValueError("Categoría de orden inválida.")

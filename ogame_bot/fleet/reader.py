@@ -13,7 +13,7 @@ from ..scanner import parsing as state
 from ..errors import ReadError, ConnectionLost
 from ..scanner.dom import Document
 from . import parsing
-from .models import coordinates
+from .models import coordinates, SHIP_IDS
 
 
 class FleetReader:
@@ -27,7 +27,9 @@ class FleetReader:
         try:
             async with self.session.read_page("galaxy", galaxy=galaxy, system=system) as page:
                 await page.locator("#galaxyContent").wait_for(state="attached")
-                return parsing.debris(Document(await page.content()), galaxy, system)
+                galaxy_input, system_input = page.locator("#galaxy_input"), page.locator("#system_input")
+                verified = await galaxy_input.count()==1 and await system_input.count()==1 and await galaxy_input.input_value()==str(galaxy) and await system_input.input_value()==str(system)
+                return parsing.debris(Document(await page.content()), galaxy, system,location_verified=verified)
         except (ReadError, ConnectionLost):
             return Reading.unavailable("galaxy_read_failed")
 
@@ -40,14 +42,17 @@ class FleetReader:
             origins = set(self.config.fleet.expeditions["origins"] if self.config.fleet.expeditions["enabled"] else [])
             origins.update(self.config.fleet.transports["sources"] if self.config.fleet.transports["enabled"] else [])
             origins.update(self.config.fleet.recycling["origins"] if self.config.fleet.recycling["enabled"] else [])
+            if self.config.fleet.fleetsave["enabled"]:
+                origins.add(self.config.fleet.fleetsave["origin_id"])
             for body in snapshot.bodies:
                 if body.body.id not in origins and (origins or body.body.id != origin):
                     continue
                 fleet = await reader.capture("fleetdispatch", body.body.id, expand_events=True)
-                body.ships = state.technologies(fleet, state.SHIPS, fleet=True)
+                body.ships = state.technologies(fleet, {identifier:name for name,identifier in SHIP_IDS.items()}, fleet=True)
                 body.resources = state.resources(fleet)
                 snapshot.fleet_slots = parsing.slots(fleet)
                 snapshot.movements = state.movements(fleet)
+                snapshot.registry = state.body_registry(fleet,self.config.server_origin)
             snapshot.outgoing = parsing.outgoing(await reader.capture("movement"))
         except (ReadError, ConnectionLost):
             snapshot.fleet_slots = Reading.unavailable("fleet_state_read_failed")

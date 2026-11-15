@@ -34,7 +34,7 @@ def load_shipyard(raw: Any) -> tuple[bool, bool, int, tuple[ShipGoal, ...]]:
     for row in raw["queue"]:
         if not isinstance(row, dict) or set(row) != {"id", "body_id", "item", "quantity"}:
             raise ConfigurationError("Cada orden de hangar requiere id, body_id, item y quantity.")
-        if not isinstance(row["id"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", row["id"]) or any(goal.id == row["id"] for goal in goals):
+        if not isinstance(row["id"], str) or row["id"].startswith("auto-energy-") or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", row["id"]) or any(goal.id == row["id"] for goal in goals):
             raise ConfigurationError("ID de orden de hangar inválido o duplicado.")
         if not isinstance(row["item"], str) or row["item"] not in SHIP_BUILD or type(row["body_id"]) is not int or row["body_id"] <= 0 or type(row["quantity"]) is not int or not 1 <= row["quantity"] <= 1000000000:
             raise ConfigurationError("Nave, planeta o cantidad de hangar inválidos.")
@@ -72,6 +72,12 @@ class BrainSettings:
     shipyard_live: bool = False
     shipyard_max_batch: int = 100
     shipyard_queue: tuple[ShipGoal, ...] = ()
+    energy_source: str = "solar_plant"
+    satellite_energy_per_unit: float | None = None
+    max_satellites: int = 1000
+    auto_storage: bool = True
+    storage_threshold_percent: float = 90
+    max_storage_level: int = 30
 
 
 def effective_brain_settings(settings: BrainSettings, *, probe_completed: bool) -> BrainSettings:
@@ -86,7 +92,7 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         "research": {"enabled", "priorities"},
     }
     for section, keys in expected.items():
-        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live", "economic_live", "idle_retry_seconds"} if section == "automation" else set()
+        optional = {"probe_target", "probe_body_id", "probe_bootstrap_live", "economic_live", "idle_retry_seconds"} if section == "automation" else {"energy_source", "satellite_energy_per_unit", "max_satellites", "auto_storage", "storage_threshold_percent", "max_storage_level"} if section == "builder" else set()
         if not isinstance(raw.get(section), dict) or not keys <= set(raw[section]) or set(raw[section]) - keys - optional:
             raise ConfigurationError(f"Campos incorrectos en {section}.")
 
@@ -167,6 +173,20 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
     if (probe_target == 1 and probe_body is None) or (probe_live and probe_target != 1):
         raise ConfigurationError("La preparación de sonda requiere objetivo 1 y planeta explícito.")
     shipyard_enabled, shipyard_live, shipyard_batch, shipyard_queue = load_shipyard(raw.get("shipyard", {"enabled": False, "live": False, "max_batch": 100, "queue": []}))
+    energy_source = raw["builder"].get("energy_source", "solar_plant")
+    if energy_source not in {"solar_plant", "solar_satellite"}:
+        raise ConfigurationError("energy_source debe ser solar_plant o solar_satellite.")
+    satellite_energy = raw["builder"].get("satellite_energy_per_unit")
+    if satellite_energy is not None:
+        satellite_energy = number(satellite_energy, "satellite_energy_per_unit", 0.01)
+    max_satellites = raw["builder"].get("max_satellites", 1000)
+    if type(max_satellites) is not int or not 1 <= max_satellites <= 1000000:
+        raise ConfigurationError("max_satellites debe ser un entero entre 1 y 1000000.")
+    auto_storage = raw["builder"].get("auto_storage",True)
+    threshold = number(raw["builder"].get("storage_threshold_percent",90),"storage_threshold_percent",1)
+    storage_limit = raw["builder"].get("max_storage_level",30)
+    if type(auto_storage) is not bool or threshold > 100 or type(storage_limit) is not int or not 1 <= storage_limit <= 100:
+        raise ConfigurationError("Ajustes de almacenes automáticos inválidos.")
     return BrainSettings(
         dry_run=get("automation", "dry_run", bool), journal_file=path("journal_file"), plan_file=path("plan_file"),
         min_interval_seconds=minimum_interval, max_interval_seconds=maximum_interval,
@@ -180,4 +200,6 @@ def load_brain_settings(raw: dict[str, Any], base: Path) -> BrainSettings:
         probe_target=probe_target, probe_body_id=probe_body, probe_bootstrap_live=probe_live, economic_live=economic_live,
         idle_retry_seconds=number(raw["automation"].get("idle_retry_seconds", 600), "idle_retry_seconds", 30),
         shipyard_enabled=shipyard_enabled, shipyard_live=shipyard_live, shipyard_max_batch=shipyard_batch, shipyard_queue=shipyard_queue,
+        energy_source=energy_source, satellite_energy_per_unit=satellite_energy, max_satellites=max_satellites,
+        auto_storage=auto_storage,storage_threshold_percent=threshold,max_storage_level=storage_limit,
     )

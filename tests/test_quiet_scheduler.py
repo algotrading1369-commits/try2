@@ -104,12 +104,12 @@ class QuietRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EconomyReadTests(unittest.IsolatedAsyncioTestCase):
-    async def test_refresh_reads_supplies_and_research_without_fleet_or_overview(self):
+    async def test_refresh_reads_fields_supplies_and_research_without_fleet_scan(self):
         with tempfile.TemporaryDirectory() as folder:
             cfg = replace(load_config(ROOT/'config.example.yaml'), scanner_output_file=Path(folder)/'state.json')
             reader = MagicMock(capture=AsyncMock(return_value=Document(HTML)))
             await Scanner(reader,cfg).refresh_economy(snapshot())
-            self.assertEqual([call.args[0] for call in reader.capture.await_args_list], ['supplies','research'])
+            self.assertEqual([call.args[0] for call in reader.capture.await_args_list], ['overview','supplies','research'])
 
 
 class WakeupTests(unittest.TestCase):

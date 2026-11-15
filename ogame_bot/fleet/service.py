@@ -9,9 +9,10 @@ from ..domain.models import AccountSnapshot, utc_now
 from ..storage.orders import OrderJournal
 from ..storage.snapshots import save_snapshot
 from ..errors import ReadError
-from .executor import FleetExecutor
+from .executor import FleetExecutor, real_flight_enabled
 from .planner import FleetPlanner
 from .reader import FleetReader
+from .fleetsave import plan_fleetsave
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,21 @@ class FleetManager:
         await self.reader.enrich(snapshot)
         save_snapshot(self.config.scanner_output_file, snapshot.to_dict())
         actions = self.planner.plan(snapshot)
+        save = self.config.fleet.fleetsave
+        if save["enabled"]:
+            if self.journal.fleetsave_completed(save["plan_id"]):
+                self.planner.notes.append({"reason":"fleetsave_already_confirmed","plan_id":save["plan_id"]})
+            elif actions or (snapshot.movements.is_fresh(self.config.scanner_max_reading_age_seconds) and (snapshot.movements.data or {}).get("threat_status") == "clear" and snapshot.fleet_slots.is_fresh(self.config.scanner_max_reading_age_seconds) and snapshot.outgoing.status == "complete" and snapshot.outgoing.is_fresh(self.config.scanner_max_reading_age_seconds)):
+                flight, reason = plan_fleetsave(snapshot,self.config.fleet,self.config.brain.resource_weights,self.config.scanner_max_reading_age_seconds)
+                self.planner.notes.append({"reason":reason,"plan_id":save["plan_id"]})
+                slots = snapshot.fleet_slots.data or {}
+                if flight is not None and slots.get("fleet_total",0)-slots.get("fleet_used",0)>0:
+                    actions.insert(0,flight)
         occupied = {action.body_id for _, action in self.journal.pending_upgrades() if action.kind == "shipyard"}
         if occupied:
             actions = [action for action in actions if action.origin_id not in occupied]
             self.planner.notes.append({"reason":"shipyard_confirmation_pending","origins":sorted(occupied)})
-        report: dict[str, Any] = {"schema_version": 1, "created_at": utc_now(), "dry_run": self.config.brain.dry_run and not bool(actions and actions[0].mission == 15 and self.config.fleet.expeditions.get("live",False)),
+        report: dict[str, Any] = {"schema_version": 1, "created_at": utc_now(), "dry_run": not real_flight_enabled(actions[0],self.config) if actions else self.config.brain.dry_run,
             "model": "historical_resource_expeditions_with_configured_capacities", "actions": [action.to_dict() for action in actions],
             "notes": self.planner.notes, "result": {"state": "planned"}}
         save_snapshot(self.config.fleet.plan_file, report)

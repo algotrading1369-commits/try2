@@ -41,7 +41,7 @@ class Defender:
 
     async def process(self) -> dict[str, Any]:
         settings = self.config.defender
-        report = {"schema_version": 1, "checked_at": utc_now(), "state": "disabled", "dry_run": self.config.brain.dry_run, "paused": False, "threats": [], "action": None, "result": {"state": "no_action"}}
+        report = {"schema_version": 1, "checked_at": utc_now(), "state": "disabled", "dry_run": self.config.brain.dry_run and not settings.live, "paused": False, "threats": [], "action": None, "result": {"state": "no_action"}}
         if not settings.enabled:
             self.session.defense_paused = False
             save_snapshot(settings.report_file, report)

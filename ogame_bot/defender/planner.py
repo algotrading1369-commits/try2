@@ -81,14 +81,18 @@ class EscapePlanner:
             self.reason = "effective_ship_capacity_unknown"
             return None
         values = body.resources.data or {}
-        if not all(type(values.get(key)) is int and values[key] >= 0 for key in ("metal", "crystal", "deuterium")) or values["deuterium"] < settings.maximum_fuel:
+        if not all(type(values.get(key)) is int and values[key] >= 0 for key in ("metal", "crystal", "deuterium")) or values["deuterium"] <= 0:
             self.reason = "resources_or_fuel_unverified"
             return None
-        capacity = sum(capacities[ship] * count for ship, count in ships.items()) - settings.maximum_fuel
-        if capacity < 0:
+        total_capacity = sum(capacities[ship] * count for ship, count in ships.items())
+        if total_capacity <= 0:
             self.reason = "fuel_margin_exceeds_capacity"
             return None
-        resources = {key: values[key] - (settings.maximum_fuel if key == "deuterium" else 0) for key in ("metal", "crystal", "deuterium")}
+        # This margin is provisional. The executor replaces it with the actual
+        # game quote before loading; maximum_fuel is a ceiling, not a cost.
+        margin = min(settings.maximum_fuel, values["deuterium"], total_capacity-1)
+        capacity = total_capacity - margin
+        resources = {key: values[key] - (margin if key == "deuterium" else 0) for key in ("metal", "crystal", "deuterium")}
         if settings.resource_policy == "require_all" and sum(resources.values()) > capacity:
             self.reason = "cannot_carry_all_resources"
             return None

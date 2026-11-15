@@ -4,7 +4,7 @@ const moduleDefinitions = [
  {id:'construction',name:'Construcción',icon:'▤',help:'Cola por objetivos: completa cada nivel objetivo antes del siguiente. El modo inteligente compara la amortización estimada de las minas e incluye energía solar.',groups:[
  ['Constructor',[
  ['builder.enabled','Constructor habilitado','bool'],['automation.economic_live','Construcción e investigación con recursos reales','bool'],['builder.strategy','Estrategia','select',[['priority','Cola por prioridades'],['roi','Inteligente: rentabilidad estimada (ROI)']]],
- ['builder.auto_solar','Construir solar cuando falte energía','bool'],['builder.minimum_energy','Energía mínima disponible','number',0],['builder.max_solar_level','Nivel solar máximo','number',1],
+ ['builder.auto_solar','Resolver automáticamente la falta de energía','bool'],['builder.energy_source','Fuente de energía automática','select',[['solar_plant','Planta solar'],['solar_satellite','Satélites solares']]],['builder.satellite_energy_per_unit','Energía por satélite (vacío = modelo por temperatura)','nullable',0.01],['builder.max_satellites','Máximo de satélites por planeta','number',1],['builder.auto_storage','Priorizar almacenes cerca del llenado','bool'],['builder.storage_threshold_percent','Umbral de llenado para ampliar almacén (%)','number',1],['builder.max_storage_level','Nivel máximo de almacenes automáticos','number',1],['builder.minimum_energy','Energía mínima disponible','number',0],['builder.max_solar_level','Nivel solar máximo','number',1],
  ['automation.min_interval_seconds','Revisión mínima (s)','number',1],['automation.max_interval_seconds','Revisión máxima (s)','number',1],['automation.idle_retry_seconds','Espera de reserva si no hay hora fiable (s)','number',30]]],
  ['Modelo de rentabilidad',[
  ['builder.economy_speed','Velocidad económica (vacío = sin definir)','nullable',1],['builder.max_payback_days','Amortización máxima (días)','number',0.01],
@@ -28,27 +28,27 @@ const moduleDefinitions = [
  ['automation.probe_target','Preparar una sonda y después continuar con mis objetivos','probe'],['automation.probe_bootstrap_live','Usar recursos reales para los requisitos y una sonda','bool'],['automation.probe_body_id','ID del planeta de fabricación','nullable',1]]]]},
  {id:'defense',name:'Defensa',icon:'◇',help:'Monitorización de amenazas y frecuencia de revisión. La detección de ataques y la evacuación son pasos distintos; el resultado y los bloqueos se muestran debajo.',groups:[
  ['Monitorización',[
- ['defender.enabled','Monitorizar ataques','bool'],['defender.origins','IDs de cuerpos vigilados (vacío = los que admita el planificador)','ids'],['defender.pause_on_unknown','Pausar rutinas si el estado es desconocido','bool'],
+ ['defender.enabled','Monitorizar ataques','bool'],['defender.live','Ejecutar evacuaciones defensivas reales','bool'],['defender.origins','IDs de cuerpos vigilados (vacío = los que admita el planificador)','ids'],['defender.pause_on_unknown','Pausar rutinas si el estado es desconocido','bool'],
  ['defender.trigger_seconds','Umbral de evacuación antes del impacto (s)','number',1],['defender.minimum_lead_seconds','Margen mínimo de reacción (s)','number',1],['defender.max_state_age_seconds','Antigüedad máxima de datos defensivos (s)','number',1]]],
  ['Frecuencia',[
  ['defender.idle_min_seconds','Revisión sin alerta, mínimo (s)','number',1],['defender.idle_max_seconds','Revisión sin alerta, máximo (s)','number',1],
  ['defender.alert_min_seconds','Revisión con alerta, mínimo (s)','number',1],['defender.alert_max_seconds','Revisión con alerta, máximo (s)','number',1]]],
  ['Notificaciones',[
  ['telegram.enabled','Alertas Telegram (credenciales en variables de entorno)','bool'],['telegram.timeout_seconds','Tiempo de espera Telegram (s)','number',1],['telegram.cooldown_seconds','Intervalo entre alertas repetidas (s)','number',1]]]]},
- {id:'fleetsave',name:'FleetSave',icon:'⇄',help:'Evacuación reactiva vinculada al defensor. No hay todavía una salida programada por hora ni cancelación automática. El transporte reúne recursos en un cuerpo propio y no garantiza por sí solo un fleetsave seguro.',groups:[
- ['Evacuación ante ataque',[
+ {id:'fleetsave',name:'FleetSave',icon:'⇄',help:'FleetSave independiente por despliegue a un destino propio: inmediato o a la hora indicada, una sola vez por identificador de plan. La duración real debe cumplir el mínimo. La evacuación ante un ataque conserva sus controles propios. No se cancela automáticamente una flota.',groups:[
+ ['Despliegue programado',[['fleet.fleetsave.enabled','Habilitar este plan de FleetSave','bool'],['fleet.fleetsave.live','Ejecutar FleetSave real','bool'],['fleet.fleetsave.plan_id','Identificador de plan (cámbialo para otra salida)','text'],['fleet.fleetsave.origin_id','ID del origen de FleetSave','nullable',1],['fleet.fleetsave.destination_id','ID del destino propio de FleetSave','nullable',1],['fleet.fleetsave.run_at','Hora local de salida (vacío = siguiente revisión)','datetime'],['fleet.fleetsave.speed_percent','Velocidad de FleetSave (%)','speed'],['fleet.fleetsave.minimum_flight_seconds','Duración mínima verificada de ida (s)','number',1],['fleet.fleetsave.resource_policy','Carga del FleetSave','select',[['maximize_value','Maximizar valor'],['require_all','Exigir todos los recursos']]]]],['Evacuación ante ataque',[
  ['defender.destinations','IDs de destinos propios verificados','ids'],['defender.mission','Misión de evacuación','select',[['espionage16','Espionaje a posición 16'],['deployment','Despliegue'],['transport','Transporte']]],
  ['defender.speed_percent','Velocidad defensiva (%) · posición 16 requiere 10','speed'],['defender.minimum_flight_seconds','Duración mínima de ida (s)','number',1],['defender.maximum_flight_seconds','Duración máxima de ida (s)','number',1],
  ['defender.maximum_fuel','Combustible máximo','number',1],['defender.resource_policy','Política de carga','select',[['maximize_value','Maximizar valor transportado'],['require_all','Exigir todos los recursos']]]]],
  ['Reunir recursos por transporte',[
- ['fleet.transports.enabled','Planificar transportes','bool'],['fleet.transports.sources','IDs de orígenes','ids'],['fleet.transports.destination_id','ID del destino propio','nullable',1],
+ ['fleet.transports.enabled','Planificar transportes','bool'],['fleet.transports.live','Enviar transportes reales','bool'],['fleet.transports.sources','IDs de orígenes','ids'],['fleet.transports.destination_id','ID del destino propio','nullable',1],
  ['fleet.transports.cargo_ship','Carguero','cargo'],['fleet.transports.minimum_utilization_percent','Ocupación mínima (%)','number',1],['fleet.transports.leave_resources','Recursos que se dejan en origen','resources']]]]},
  {id:'scanner',name:'Modo Scanner',icon:'◎',help:'En modo autónomo se hace una lectura inicial y después se lee a demanda. Los intervalos de esta pestaña se usan en Solo scanner; la espera económica se ajusta en Construcción.',groups:[
  ['Lectura de cuenta',[
  ['scanner.enabled','Scanner habilitado','bool'],['scanner.min_interval_seconds','Intervalo mínimo (s)','number',1],['scanner.max_interval_seconds','Intervalo máximo (s)','number',1],
  ['scanner.max_bodies_per_scan','Máximo de cuerpos por lectura','number',1],['scanner.max_reading_age_seconds','Vigencia máxima de lecturas (s)','number',1]]],
  ['Reciclaje cercano (planificación)',[
- ['fleet.recycling.enabled','Buscar escombros','bool'],['fleet.recycling.origins','IDs de orígenes','ids'],['fleet.recycling.radius_systems','Radio de sistemas (0–20)','number',0],
+ ['fleet.recycling.enabled','Buscar escombros','bool'],['fleet.recycling.live','Reciclar con envíos reales','bool'],['fleet.recycling.origins','IDs de orígenes','ids'],['fleet.recycling.radius_systems','Radio de sistemas (0–20)','number',0],
  ['fleet.recycling.minimum_debris','Escombros mínimos','number',1],['fleet.recycling.max_systems_per_cycle','Sistemas por ciclo (1–100)','number',1]]]]},
  {id:'settings',name:'Configuración general',icon:'⚙',help:'Puedes guardar instrucciones con el bot activo. Se aplican entre operaciones y conservan copia de respaldo. El canal, idioma y visibilidad del navegador requieren reiniciar. Hangar y Expediciones tienen controles independientes de ejecución real.',groups:[
  ['Gestor de flotas',[
@@ -56,7 +56,7 @@ const moduleDefinitions = [
  ['fleet.reserved_slots','Slots que deben quedar libres','number',0],['fleet.deuterium_reserve','Reserva de deuterio de flotas','number',0],['fleet.maximum_fuel','Combustible máximo por envío','number',1],
  ['fleet.maximum_oneway_seconds','Duración máxima de ida (s)','number',1],['fleet.speed_percent','Velocidad de flotas (%)','speed'],['fleet.capacities','Capacidades verificadas por nave (JSON)','json']]],
  ['Sesión y tiempos',[
- ['session.manual_login_timeout_seconds','Plazo para acceso manual (s)','number',1],['session.health_check_seconds','Comprobación pasiva de sesión (s)','number',1],['session.max_reconnect_attempts','Intentos de reconexión','number',1],
+ ['scheduler.isolate_failures','Recuperar módulos con errores transitorios sin detener los demás','bool'],['session.manual_login_timeout_seconds','Plazo para acceso manual (s)','number',1],['session.health_check_seconds','Comprobación pasiva de sesión (s)','number',1],['session.max_reconnect_attempts','Intentos de reconexión','number',1],
  ['session.initial_backoff_seconds','Espera inicial de reconexión (s)','number',0.1],['session.max_backoff_seconds','Espera máxima de reconexión (s)','number',0.1],
  ['timing.min_delay_seconds','Pausa mínima entre acciones (s)','number',0],['timing.max_delay_seconds','Pausa máxima entre acciones (s)','number',0]]],
  ['Navegador',[
@@ -74,7 +74,7 @@ function fieldControl(def){const [path,label,type,extra]=def;const wrap=document
  input=document.createElement(type==='select'||type==='cargo'||type==='speed'?'select':type==='json'?'textarea':'input');input.id='field-'+path.replaceAll('.','-');
  if(type==='select'||type==='cargo'||type==='speed'){const options=type==='cargo'?[['small_cargo','Nave pequeña de carga'],['large_cargo','Nave grande de carga']]:type==='speed'?Array.from({length:10},(_,i)=>[String((i+1)*10),`${(i+1)*10}%`]):extra;for(const [value,name] of options){const option=document.createElement('option');option.value=value;option.textContent=name;input.append(option);}}
  else if(type==='bool'||type==='probe'){input.type='checkbox';wrap.className='toggle';}
- else if(type==='number'||type==='nullable'){input.type='number';input.min=String(extra??0);input.step='any';}
+ else if(type==='datetime'){input.type='datetime-local';}else if(type==='number'||type==='nullable'){input.type='number';input.min=String(extra??0);input.step='any';}
  else if(type==='json'){input.rows=5;input.spellcheck=false;}
  else input.type='text';
  input.setAttribute('aria-label',label);editableFields.push({path,type,input,label});wrap.append(input);return wrap;

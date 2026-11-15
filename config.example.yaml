@@ -65,6 +65,12 @@ builder:
     crystal: 1.0
     deuterium: 1.0
   temperatures: {}
+  energy_source: solar_plant
+  satellite_energy_per_unit: null
+  max_satellites: 1000
+  auto_storage: true
+  storage_threshold_percent: 90
+  max_storage_level: 30
 research:
   enabled: true
   priorities:
@@ -115,12 +121,14 @@ fleet:
       metal: 0
       crystal: 0
       deuterium: 100000
+    live: false
   recycling:
     enabled: false
     origins: []
     radius_systems: 5
     minimum_debris: 100000
     max_systems_per_cycle: 10
+    live: false
   selectors:
     ship_input: input[name="am{id}"]
     continue_2: '#continueToFleet2'
@@ -137,6 +145,16 @@ fleet:
     capacity: '#cargoCapacity'
     flight_seconds: '#flightTime[data-seconds]'
     send: '#sendFleet'
+  fleetsave:
+    enabled: false
+    live: false
+    plan_id: manual-save
+    origin_id: null
+    destination_id: null
+    run_at: null
+    speed_percent: 10
+    minimum_flight_seconds: 3600
+    resource_policy: maximize_value
 defender:
   enabled: true
   report_file: runtime/defender_state.json
@@ -156,6 +174,7 @@ defender:
   idle_max_seconds: 240
   alert_min_seconds: 10
   alert_max_seconds: 20
+  live: false
 telegram:
   enabled: false
   token_env: TELEGRAM_BOT_TOKEN
@@ -180,6 +199,7 @@ scheduler:
     scanner: 30
     brain: 40
     fleet: 50
+  isolate_failures: true
 shipyard:
   enabled: false
   live: false

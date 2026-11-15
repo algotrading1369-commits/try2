@@ -21,12 +21,16 @@ class SchedulerSettings:
     reconciliation_min_seconds: float
     reconciliation_max_seconds: float
     priorities: dict[str, int]
+    isolate_failures: bool = True
 
 
 def load_scheduler_settings(raw: Any, base: Path) -> SchedulerSettings:
     keys = {"status_file", "heartbeat_seconds", "idle_poll_seconds", "retry_initial_seconds", "retry_max_seconds", "max_consecutive_failures", "dependency_retry_seconds", "reconciliation_min_seconds", "reconciliation_max_seconds", "priorities"}
-    if not isinstance(raw, dict) or set(raw) != keys:
+    if not isinstance(raw, dict) or set(raw)-{"isolate_failures"} != keys:
         raise ConfigurationError("Campos incorrectos en scheduler.")
+    isolate = raw.get("isolate_failures",True)
+    if type(isolate) is not bool:
+        raise ConfigurationError("scheduler.isolate_failures debe ser booleano.")
 
     def number(name: str) -> float:
         value = raw[name]
@@ -50,4 +54,4 @@ def load_scheduler_settings(raw: Any, base: Path) -> SchedulerSettings:
     minimum, maximum_reconcile = number("reconciliation_min_seconds"), number("reconciliation_max_seconds")
     if initial > maximum or minimum > maximum_reconcile:
         raise ConfigurationError("Intervalos del scheduler invertidos.")
-    return SchedulerSettings((base / raw["status_file"]).resolve(), number("heartbeat_seconds"), number("idle_poll_seconds"), initial, maximum, count, number("dependency_retry_seconds"), minimum, maximum_reconcile, dict(priorities))
+    return SchedulerSettings((base / raw["status_file"]).resolve(), number("heartbeat_seconds"), number("idle_poll_seconds"), initial, maximum, count, number("dependency_retry_seconds"), minimum, maximum_reconcile, dict(priorities),isolate)

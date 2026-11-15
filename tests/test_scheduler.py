@@ -38,7 +38,7 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         settings = load_config(ROOT / "config.example.yaml").scheduler
-        self.settings = replace(settings, status_file=Path(self.temp.name) / "scheduler.json")
+        self.settings = replace(settings, status_file=Path(self.temp.name) / "scheduler.json",isolate_failures=False)
         self.clock = Clock()
         self.scheduler = Scheduler(self.settings, clock=self.clock, uniform=lambda low, high: high)
 

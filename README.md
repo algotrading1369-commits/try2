@@ -1,5 +1,8 @@
 # OGame Bot — proyecto modular Python
 
+Energía por satélites, prioridad de almacenes, flotas y recuperación:
+[guía de configuración y límites de validación](ENERGIA_FLOTAS_ESTABILIDAD.md).
+
 Implementación independiente del prototipo de la carpeta superior. Python 3.11+.
 No comparte su perfil ni cambia los archivos de estado del prototipo anterior.
 Mejoras y envíos parten en simulación. El panel permite habilitar por separado

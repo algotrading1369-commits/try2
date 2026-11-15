@@ -46,6 +46,12 @@ def diagnose(config: Config, snapshot: dict[str, Any] | None, now: datetime | No
         add("shipyard_mode", "info", "Hangar: fabricación REAL habilitada." if config.brain.shipyard_live else "Hangar: simulación de fabricación.")
     if config.fleet.enabled and config.fleet.expeditions["enabled"]:
         add("expedition_mode", "info", "Expediciones: envíos REALES habilitados." if config.fleet.expeditions.get("live",False) else "Expediciones: simulación de envíos.")
+    for key,title in (("transports","Transportes"),("recycling","Reciclaje"),("fleetsave","FleetSave")):
+        section = getattr(config.fleet,key)
+        if config.fleet.enabled and section["enabled"]:
+            add(key+"_mode","info",title + (": ejecución REAL habilitada." if section.get("live",False) else ": simulación."))
+    if config.defender.enabled:
+        add("defender_mode","info","Defensa: evacuación REAL habilitada." if config.defender.live else "Defensa: evacuación en simulación.")
     capacity_required = config.defender.enabled or (config.fleet.enabled and (config.fleet.transports["enabled"] or config.fleet.recycling["enabled"] or (config.fleet.expeditions["enabled"] and config.fleet.expeditions.get("composition_mode","automatic") == "automatic")))
     if capacity_required:
         if not config.fleet.capacities:

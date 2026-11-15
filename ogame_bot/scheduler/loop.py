@@ -165,6 +165,13 @@ class Scheduler:
             job.last_result = "retrying"
             if self.on_recoverable is not None:
                 self.on_recoverable(job.name, error)
+            if not job.critical and self.settings.isolate_failures and job.consecutive_failures >= self.settings.max_consecutive_failures:
+                job.last_result = "cooldown"
+                job.waiting_reason = "module_recovery_cooldown"
+                job.next_due = self.clock() + self.settings.retry_max_seconds
+                job.consecutive_failures = 0
+                logger.warning("Scheduler: %s entra en recuperación; los demás módulos continúan.",job.name)
+                return
             if job.critical or job.consecutive_failures >= self.settings.max_consecutive_failures:
                 job.last_result = "failed"
                 raise CoreError("Se agotó la recuperación del trabajo " + job.name) from error

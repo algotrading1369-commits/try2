@@ -66,6 +66,7 @@ RESEARCH = {
 }
 SHIP_BUILD = {"espionage_probe": Technology(210, "Sonda de espionaje", "shipyard", (0, 1000, 0), "1")}
 SHIP_BUILD.update({
+    "solar_satellite": Technology(212, "Satélite solar", "shipyard", (0, 2000, 500), "1"),
     "small_cargo": Technology(202, "Nave pequeña de carga", "shipyard", (2000, 2000, 0), "1"),
     "large_cargo": Technology(203, "Nave grande de carga", "shipyard", (6000, 6000, 0), "1"),
     "light_fighter": Technology(204, "Cazador ligero", "shipyard", (3000, 1000, 0), "1"),

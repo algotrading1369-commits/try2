@@ -18,7 +18,7 @@ def config_version(config: Config) -> str | None:
 
 
 def validate_live_change(previous: Config, candidate: Config) -> None:
-    editable = {"brain", "fleet", "defender", "telegram", "scanner_enabled", "scanner_min_interval_seconds", "scanner_max_interval_seconds", "scanner_max_bodies", "scanner_max_reading_age_seconds", "health_check_seconds", "manual_login_timeout_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds", "min_delay_seconds", "max_delay_seconds", "navigation_timeout_seconds", "action_timeout_seconds", "source_file"}
+    editable = {"scheduler", "brain", "fleet", "defender", "telegram", "scanner_enabled", "scanner_min_interval_seconds", "scanner_max_interval_seconds", "scanner_max_bodies", "scanner_max_reading_age_seconds", "health_check_seconds", "manual_login_timeout_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds", "min_delay_seconds", "max_delay_seconds", "navigation_timeout_seconds", "action_timeout_seconds", "source_file"}
     for field in fields(previous):
         if field.name not in editable | {"source_version"} and getattr(previous, field.name) != getattr(candidate, field.name):
             raise ConfigurationError("Este cambio de cuenta, navegador o almacenamiento requiere reiniciar el bot.")
@@ -27,6 +27,7 @@ def validate_live_change(previous: Config, candidate: Config) -> None:
         (previous.fleet, candidate.fleet, ("plan_file", "selectors")),
         (previous.defender, candidate.defender, ("report_file",)),
         (previous.telegram, candidate.telegram, ("state_file", "token_env", "chat_id_env")),
+        (previous.scheduler,candidate.scheduler,tuple(field.name for field in fields(previous.scheduler) if field.name != "isolate_failures")),
     ):
         if any(getattr(before, key) != getattr(after, key) for key in protected):
             raise ConfigurationError("Las rutas y credenciales requieren reiniciar el bot.")

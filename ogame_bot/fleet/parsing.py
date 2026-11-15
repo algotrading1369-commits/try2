@@ -53,7 +53,8 @@ def slots(document: Document) -> Reading[dict[str, int]]:
 def outgoing(document: Document) -> Reading[list[dict[str, Any]]]:
     container = one(document.by_id("fleetMovements"))
     if container is None or container.attrs.get("data-loaded") != "true":
-        return Reading.unavailable("outgoing_list_unverified")
+        from .native import native_outgoing
+        return native_outgoing(document)
     flights: list[dict[str, Any]] = []
     issues: list[str] = []
     for row in container.find(lambda node: "data-fleet-id" in node.attrs):
@@ -82,10 +83,11 @@ def outgoing(document: Document) -> Reading[list[dict[str, Any]]]:
     return result(flights, issues)
 
 
-def debris(document: Document, galaxy: int, system: int) -> Reading[list[dict[str, Any]]]:
+def debris(document: Document, galaxy: int, system: int, *, location_verified: bool = False) -> Reading[list[dict[str, Any]]]:
     table = one(document.by_id("galaxyContent"))
     if table is None or table.attrs.get("data-galaxy") != str(galaxy) or table.attrs.get("data-system") != str(system) or table.attrs.get("data-loaded") != "true":
-        return Reading.unavailable("galaxy_location_or_load_unverified")
+        from .native import native_debris
+        return native_debris(document,galaxy,system,location_verified=location_verified)
     fields: list[dict[str, Any]] = []
     issues: list[str] = []
     for row in table.find(lambda node: "data-position" in node.attrs):

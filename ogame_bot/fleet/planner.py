@@ -110,17 +110,17 @@ class FleetPlanner:
                     values = body.resources.data or {}
                     if count <= 0 or not all(type(values.get(key)) is int for key in zero):
                         continue
-                    available = {key: max(0, values[key] - max(transport["leave_resources"][key], settings.deuterium_reserve if key == "deuterium" else 0) - (settings.maximum_fuel if key == "deuterium" else 0)) for key in zero}
-                    load_total = min(sum(available.values()), max(0, count * capacity - settings.maximum_fuel))
+                    available = {key: max(0, values[key] - max(transport["leave_resources"][key], settings.deuterium_reserve if key == "deuterium" else 0)) for key in zero}
+                    load_total = min(sum(available.values()), count * capacity)
                     if load_total <= 0:
                         continue
-                    count = min(count, math.ceil((load_total + settings.maximum_fuel) / capacity))
+                    count = min(count, math.ceil(load_total / capacity))
                     load: dict[str, int] = {}
                     remaining = load_total
                     for key in zero:
                         load[key] = min(available[key], remaining)
                         remaining -= load[key]
-                    if sum(load.values()) * 100 < count * capacity * transport["minimum_utilization_percent"] or not self._available(body, {transport["cargo_ship"]: count}):
+                    if sum(load.values()) * 100 < count * capacity * transport["minimum_utilization_percent"] or not self._available(body, {transport["cargo_ship"]: count}, quoted_later=True):
                         continue
                     actions.append(Flight("fleet", 3, identifier, body.body.coordinates, destination.coordinates, 3 if destination.kind == "moon" else 1, destination.id, {transport["cargo_ship"]: count}, load, settings.speed_percent, 1, "own_resource_transport", baseline))
         recycling = settings.recycling
@@ -136,8 +136,8 @@ class FleetPlanner:
                     amount = field["metal"] + field["crystal"]
                     if target_galaxy != galaxy or abs(target_system - system) > recycling["radius_systems"] or amount < recycling["minimum_debris"]:
                         continue
-                    ships = {"recycler": math.ceil((amount + settings.maximum_fuel) / capacity)}
-                    if self._available(body, ships):
+                    ships = {"recycler": math.ceil(amount / capacity)}
+                    if self._available(body, ships, quoted_later=True):
                         actions.append(Flight("fleet", 8, identifier, body.body.coordinates, field["coordinates"], 2, None, ships, dict(zero), settings.speed_percent, 1, "nearby_debris", baseline))
                         break
         for action in actions:

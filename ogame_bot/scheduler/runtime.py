@@ -112,6 +112,7 @@ class BotRuntime:
             if previous.fleet != candidate.fleet:
                 reset.add("fleet")
             self.config = candidate
+            self.scheduler.settings = candidate.scheduler
             self.session.config = candidate
             self.session.context.set_default_timeout(candidate.action_timeout_seconds * 1000)
             self.session.context.set_default_navigation_timeout(candidate.navigation_timeout_seconds * 1000)
@@ -194,7 +195,7 @@ class BotRuntime:
                 self._request_recovery()
 
     async def _scan(self) -> None:
-        self.scanner.shipyard_required = self.config.brain.shipyard_enabled or bool(self.journal and any(action.kind == "shipyard" for _,action in self.journal.pending_upgrades()))
+        self.scanner.shipyard_required = self.config.brain.shipyard_enabled or (self.config.brain.builder_enabled and self.config.brain.auto_solar and self.config.brain.energy_source == "solar_satellite") or bool(self.journal and any(action.kind == "shipyard" for _,action in self.journal.pending_upgrades()))
         if self.latest is None or self._full_scan_requested or self.mode != "full" or self.config.brain.probe_target:
             self.latest = await self.scanner.scan()
         else:
@@ -272,6 +273,11 @@ class BotRuntime:
             if self.latest is None:
                 raise DependencyPending()
             report = await self.fleet.process(self.latest)
+            scheduled = self.config.fleet.fleetsave
+            if scheduled["enabled"] and any(note.get("reason") == "fleetsave_waiting_schedule" for note in report.get("notes",[])):
+                delay = seconds_until(scheduled["run_at"])
+                if delay is not None:
+                    self.scheduler.defer("fleet",min(delay,self.config.fleet.min_interval_seconds),"fleetsave_waiting_schedule")
             if report.get("result", {}).get("state") == "confirmed":
                 # Re-read actual slots and ships before filling the next slot.
                 self.scheduler.trigger("fleet")

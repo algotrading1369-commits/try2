@@ -29,11 +29,12 @@ from .live_config import validate_live_change
 
 EDITABLE = {
     "automation": {"dry_run", "economic_live", "probe_target", "probe_body_id", "probe_bootstrap_live", "min_interval_seconds", "max_interval_seconds", "idle_retry_seconds"},
-    "builder": {"enabled", "strategy", "priorities", "reserve", "minimum_energy", "auto_solar", "max_solar_level", "max_payback_days", "economy_speed", "resource_weights", "production_multipliers", "temperatures"},
+    "builder": {"enabled", "strategy", "priorities", "reserve", "minimum_energy", "auto_solar", "max_solar_level", "max_payback_days", "economy_speed", "resource_weights", "production_multipliers", "temperatures", "energy_source", "satellite_energy_per_unit", "max_satellites", "auto_storage", "storage_threshold_percent", "max_storage_level"},
     "research": {"enabled", "priorities"},
     "shipyard": {"enabled", "live", "max_batch", "queue"},
-    "fleet": {"enabled", "min_interval_seconds", "max_interval_seconds", "reserved_slots", "deuterium_reserve", "maximum_fuel", "maximum_oneway_seconds", "speed_percent", "capacities", "expeditions", "transports", "recycling"},
-    "defender": {"enabled", "origins", "destinations", "mission", "speed_percent", "trigger_seconds", "minimum_lead_seconds", "max_state_age_seconds", "minimum_flight_seconds", "maximum_flight_seconds", "maximum_fuel", "resource_policy", "pause_on_unknown", "idle_min_seconds", "idle_max_seconds", "alert_min_seconds", "alert_max_seconds"},
+    "fleet": {"enabled", "min_interval_seconds", "max_interval_seconds", "reserved_slots", "deuterium_reserve", "maximum_fuel", "maximum_oneway_seconds", "speed_percent", "capacities", "expeditions", "transports", "recycling", "fleetsave"},
+    "defender": {"enabled", "live", "origins", "destinations", "mission", "speed_percent", "trigger_seconds", "minimum_lead_seconds", "max_state_age_seconds", "minimum_flight_seconds", "maximum_flight_seconds", "maximum_fuel", "resource_policy", "pause_on_unknown", "idle_min_seconds", "idle_max_seconds", "alert_min_seconds", "alert_max_seconds"},
+    "scheduler": {"isolate_failures"},
     "scanner": {"enabled", "min_interval_seconds", "max_interval_seconds", "max_bodies_per_scan", "max_reading_age_seconds"},
     "session": {"manual_login_timeout_seconds", "health_check_seconds", "max_reconnect_attempts", "initial_backoff_seconds", "max_backoff_seconds"},
     "timing": {"min_delay_seconds", "max_delay_seconds"},
@@ -61,6 +62,8 @@ class PanelService:
             digest.update((project / relative).read_bytes())
         for relative in ("brain/planner.py", "brain/catalog.py", "brain/shipyard.py", "storage/orders.py", "domain/models.py", "fleet/service.py", "fleet/settings.py", "fleet/planner.py", "fleet/reader.py", "fleet/executor.py"):
             digest.update((project / relative).read_bytes())
+        for relative in ("fleet/fleetsave.py","fleet/native.py","fleet/models.py","fleet/parsing.py","defender/settings.py","defender/service.py","scheduler/settings.py"):
+            digest.update((project/relative).read_bytes())
         self.backend_build = digest.hexdigest()[:20]
         self.process: subprocess.Popen[bytes] | None = None
         self.control_token: str | None = None
@@ -70,6 +73,14 @@ class PanelService:
         raw_bytes = self.path.read_bytes()
         raw = yaml.safe_load(raw_bytes)
         raw.setdefault("shipyard", {"enabled":False,"live":False,"max_batch":100,"queue":[]})
+        from .fleet.settings import FLEETSAVE_DEFAULTS
+        raw["fleet"].setdefault("fleetsave",dict(FLEETSAVE_DEFAULTS))
+        raw["defender"].setdefault("live",False)
+        raw["scheduler"].setdefault("isolate_failures",True)
+        for key,value in {"energy_source":"solar_plant","satellite_energy_per_unit":None,"max_satellites":1000,"auto_storage":True,"storage_threshold_percent":90,"max_storage_level":30}.items():
+            raw["builder"].setdefault(key,value)
+        for section in ("transports","recycling"):
+            raw["fleet"][section].setdefault("live",False)
         for key, value in {"live":False,"composition_mode":"automatic","manual_ships":{}}.items():
             raw["fleet"]["expeditions"].setdefault(key, value)
         raw["automation"].setdefault("probe_target", 0)

@@ -113,7 +113,7 @@ class FleetPlanningTests(unittest.TestCase):
         flight = FleetPlanner(fleet, 120).plan(account())[0]
         self.assertEqual((flight.mission, flight.destination_type, flight.destination_id), (3, 3, 102))
         self.assertLessEqual(flight.resources["metal"], 999900)
-        self.assertLessEqual(flight.resources["deuterium"], 1000000 - 300 - fleet.maximum_fuel)
+        self.assertLessEqual(flight.resources["deuterium"], 1000000 - 300)
         fleet = replace(fleet, transports={**fleet.transports, "destination_id": 999})
         self.assertEqual(FleetPlanner(fleet, 120).plan(account()), [])
 

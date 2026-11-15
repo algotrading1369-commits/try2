@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 import math
 from typing import Any
+from datetime import datetime, timezone
 
 from playwright.async_api import Page, Locator
 import re
@@ -39,6 +40,17 @@ def matching_flight(flight: Flight, rows: list[dict[str, Any]]) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def real_flight_enabled(flight: Flight, config: Config) -> bool:
+    if not config.brain.dry_run:
+        return True
+    if flight.purpose == "defender":
+        return config.defender.live
+    if flight.purpose == "fleetsave":
+        return config.fleet.fleetsave["live"]
+    section = config.fleet.expeditions if flight.mission == 15 else config.fleet.transports if flight.mission == 3 else config.fleet.recycling
+    return bool(section.get("live",False))
+
+
 class FleetExecutor:
     def __init__(self, session: SessionManager, config: Config, journal: OrderJournal) -> None:
         self.session, self.config, self.journal = session, config, journal
@@ -71,6 +83,10 @@ class FleetExecutor:
         return locator
 
     def _authorized(self, flight: Flight) -> bool:
+        if flight.purpose == "fleetsave":
+            plan = self.config.fleet.fleetsave
+            due = plan["run_at"] is None or datetime.now(timezone.utc) >= datetime.fromisoformat(plan["run_at"])
+            return bool(due and self.config.fleet.enabled and plan["enabled"] and flight.mission == 4 and flight.plan_id == plan["plan_id"] and not self.journal.fleetsave_completed(flight.plan_id) and flight.origin_id == plan["origin_id"] and flight.destination_id == plan["destination_id"] and flight.speed_percent == plan["speed_percent"] and flight.minimum_duration_seconds >= plan["minimum_flight_seconds"])
         if flight.purpose == "defender":
             settings = self.config.defender
             destination_allowed = flight.mission == 6 or flight.destination_id in settings.destinations
@@ -98,10 +114,11 @@ class FleetExecutor:
         if not self._authorized(flight):
             return {"state": "blocked", "reason": "mission_outside_configuration"}
         defensive = flight.purpose == "defender"
+        evacuating = defensive or flight.purpose == "fleetsave"
+        dynamic_load = evacuating or flight.mission == 3
         if not defensive and self.session.defense_paused is True:
             return {"state": "blocked", "reason": "defender_paused_routine_actions"}
-        live_expedition = flight.mission == 15 and self.config.fleet.expeditions.get("live", False)
-        if self.config.brain.dry_run and not live_expedition:
+        if not real_flight_enabled(flight,self.config):
             result: dict[str, Any] = {"state": "simulated", "action": flight.to_dict()}
             if flight.mission == 6:
                 result.update({"timing_verified": False, "requires_live_quote": True})
@@ -131,7 +148,7 @@ class FleetExecutor:
             limits = counters.data or {}
             threat = state.movements(document)
             threat_reason = escape_guard(document, flight, self.config.defender) if defensive else None if (threat.data or {}).get("threat_status") == "clear" else "attacks_unknown_or_detected"
-            reserved_slots = 0 if defensive else self.config.fleet.reserved_slots
+            reserved_slots = 0 if evacuating else self.config.fleet.reserved_slots
             verified_slots = all(type(limits.get(key)) is int for key in ("fleet_total", "fleet_used"))
             if not verified_slots or (not defensive and counters.status != "complete") or limits["fleet_total"] - limits["fleet_used"] <= reserved_slots or threat_reason is not None:
                 return {"state": "blocked", "reason": "slots_or_attack_status_changed"}
@@ -139,7 +156,7 @@ class FleetExecutor:
                 return {"state": "blocked", "reason": "expedition_slots_exhausted"}
             if any((available.data or {}).get(ship, -1) < count for ship, count in flight.ships.items()):
                 return {"state": "blocked", "reason": "ships_changed"}
-            if defensive:
+            if evacuating:
                 all_ships = state.technologies(document, {identifier: name for name, identifier in SHIP_IDS.items()}, fleet=True)
                 unknown_cards = document.root.find(lambda node: node.has_class("technology") and node.attrs.get("data-technology") not in {*(str(identifier) for identifier in SHIP_IDS.values()), "212", "217"})
                 if unknown_cards or all_ships.status != "complete" or {ship: count for ship, count in (all_ships.data or {}).items() if count > 0} != flight.ships:
@@ -188,25 +205,29 @@ class FleetExecutor:
             duration = state.parse_integer(await (await self._single(page, "flight_seconds")).get_attribute("data-seconds") or "")
             fuel_limit = self.config.defender.maximum_fuel if defensive else self.config.fleet.maximum_fuel
             duration_limit = self.config.defender.maximum_flight_seconds if defensive else self.config.fleet.maximum_oneway_seconds
-            if fuel is None or capacity is None or duration is None or capacity <= 0 or duration <= 0 or duration < flight.minimum_duration_seconds or fuel > fuel_limit or duration > duration_limit or (not defensive and sum(flight.resources.values()) + fuel > capacity):
+            if fuel is None or capacity is None or duration is None or capacity <= 0 or duration <= 0 or duration < flight.minimum_duration_seconds or fuel > fuel_limit or duration > duration_limit or (not dynamic_load and sum(flight.resources.values()) + fuel > capacity):
                 return {"state": "blocked", "reason": "fuel_capacity_or_duration_unverified"}
             if defensive:
                 await expand_event_panel(page)
             final_document = Document(await page.content())
             identity(final_document, flight, self.config)
-            if defensive:
+            if dynamic_load:
                 actual_resources = state.resources(final_document).data or {}
                 if not all(type(actual_resources.get(key)) is int and actual_resources[key] >= 0 for key in flight.resources) or actual_resources.get("deuterium", -1) < fuel or capacity < fuel:
                     return {"state": "blocked", "reason": "escape_resources_unverified"}
-                available_load = {key: actual_resources[key] - (fuel if key == "deuterium" else 0) for key in flight.resources}
+                leave = {key:0 for key in flight.resources} if evacuating else self.config.fleet.transports["leave_resources"]
+                available_load = {key: max(0,actual_resources[key] - max(leave[key],self.config.fleet.deuterium_reserve if key == "deuterium" and not evacuating else 0) - (fuel if key == "deuterium" else 0)) for key in flight.resources}
                 remaining_capacity = capacity - fuel
-                if self.config.defender.resource_policy == "require_all" and sum(available_load.values()) > remaining_capacity:
+                policy = self.config.defender.resource_policy if defensive else self.config.fleet.fleetsave["resource_policy"] if flight.purpose == "fleetsave" else "maximize_value"
+                if policy == "require_all" and sum(available_load.values()) > remaining_capacity:
                     return {"state": "blocked", "reason": "cannot_carry_all_resources"}
                 load = {key: 0 for key in flight.resources}
                 for key in sorted(load, key=lambda key: self.config.brain.resource_weights[key], reverse=True):
                     load[key] = min(remaining_capacity, available_load[key])
                     remaining_capacity -= load[key]
                 flight = replace(flight, resources=load)
+                if flight.mission == 3 and not evacuating and sum(load.values())*100 < capacity*self.config.fleet.transports["minimum_utilization_percent"]:
+                    return {"state":"blocked","reason":"transport_utilization_changed"}
                 for resource, amount in load.items():
                     control = await self._single(page, "resource_input", resource=resource)
                     await control.fill(str(amount))
@@ -224,8 +245,8 @@ class FleetExecutor:
                 if actual != str(expected) and not (expected == 0 and actual == ""):
                     raise ReadError("El formulario contiene una nave no prevista.")
             values = state.resources(final_document).data or {}
-            reserves = self.config.fleet.transports["leave_resources"] if flight.mission == 3 and not defensive else {"metal": 0, "crystal": 0, "deuterium": 0}
-            fuel_reserve = 0 if defensive else self.config.fleet.deuterium_reserve
+            reserves = self.config.fleet.transports["leave_resources"] if flight.mission == 3 and not evacuating else {"metal": 0, "crystal": 0, "deuterium": 0}
+            fuel_reserve = 0 if evacuating else self.config.fleet.deuterium_reserve
             if any(values.get(key, -1) < amount + max(reserves[key], fuel_reserve if key == "deuterium" else 0) + (fuel if key == "deuterium" else 0) for key, amount in flight.resources.items()):
                 return {"state": "blocked", "reason": "resources_or_fuel_reserve_changed"}
             final_threat_reason = escape_guard(final_document, flight, self.config.defender) if defensive else None if (state.movements(final_document).data or {}).get("threat_status") == "clear" else "attack_status_changed_before_send"

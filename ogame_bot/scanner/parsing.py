@@ -15,6 +15,47 @@ RESEARCH = {106: "espionage_technology", 108: "computer_technology", 109: "weapo
 SHIPS = {202: "small_cargo", 203: "large_cargo", 204: "light_fighter", 205: "heavy_fighter", 206: "cruiser", 207: "battleship", 208: "colony_ship", 209: "recycler", 210: "espionage_probe", 211: "bomber", 213: "destroyer", 214: "deathstar", 215: "battlecruiser", 218: "reaper", 219: "pathfinder"}
 
 
+SHIPS[212] = "solar_satellite"
+
+
+def planet_fields(document: Document) -> Reading[dict[str,int]]:
+    panels = document.by_id("planetdata")
+    if len(panels)!=1:
+        return Reading.unavailable("planet_fields_unknown")
+    rows = panels[0].find(lambda node:node.has_class("fields"))
+    if len(rows)!=1:
+        return Reading.unavailable("planet_fields_unknown")
+    matches = re.findall(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)",rows[0].text)
+    if len(matches)!=1:
+        return Reading.unavailable("planet_fields_unknown")
+    used,total = map(int,matches[0])
+    if not 0 <= used <= total or total <= 0:
+        return Reading.unavailable("planet_fields_invalid")
+    return Reading({"used":used,"total":total,"free":total-used},utc_now(),"complete")
+
+
+def storage_capacity(document: Document) -> Reading[dict[str,int]]:
+    values: dict[str,int] = {}
+    issues: list[str] = []
+    for resource in ("metal","crystal","deuterium"):
+        nodes = document.by_id("resources_"+resource)
+        candidates = {parse_integer(node.attrs[key]) for node in nodes for key in ("data-max","data-storage","data-capacity") if key in node.attrs}
+        for box in document.by_id(resource+"_box"):
+            for node in box.walk():
+                for attr in ("title","data-tooltip-content"):
+                    tooltip = node.attrs.get(attr,"")
+                    if len(tooltip)>20000:
+                        continue
+                    text = Document(tooltip).root.text if "<" in tooltip else tooltip
+                    for match in re.finditer(r"(?:Capacidad de almacenamiento|Capacidad del almac[eé]n|Almacenamiento m[aá]ximo|Storage capacity)\s*:?\s*((?:[0-9]{1,3}(?:[. ][0-9]{3})+|[0-9]+))(?![.,0-9])",text,re.IGNORECASE):
+                        candidates.add(parse_integer(match.group(1)))
+        if len(nodes)!=1 or len(candidates)!=1 or None in candidates or next(iter(candidates),0)<=0:
+            issues.append("storage_capacity_unknown_"+resource)
+        else:
+            values[resource] = next(iter(candidates))
+    return result(values,issues,found=bool(values))
+
+
 def planet_temperature(document: Document) -> Reading[dict[str, int]]:
     """Read only an explicit, unambiguous Spanish temperature range."""
     panels = document.by_id("planetdata")

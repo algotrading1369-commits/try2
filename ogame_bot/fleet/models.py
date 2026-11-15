@@ -39,6 +39,7 @@ class Flight:
     impact_at: str | None = None
     origin_type: int = 1
     minimum_duration_seconds: int = 0
+    plan_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,8 +79,12 @@ class Flight:
             raise ValueError("Velocidad inválida.")
         if type(self.holding_hours) is not int or not 1 <= self.holding_hours <= 16:
             raise ValueError("Permanencia inválida.")
-        if self.purpose not in {"routine", "defender"} or (self.mission == 4 and self.purpose != "defender"):
+        if self.purpose not in {"routine", "defender", "fleetsave"} or (self.mission == 4 and self.purpose not in {"defender","fleetsave"}):
             raise ValueError("Despliegue reservado a evacuaciones verificadas.")
+        if self.purpose == "fleetsave" and (self.mission != 4 or not isinstance(self.plan_id,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}",self.plan_id) or self.minimum_duration_seconds <= 0):
+            raise ValueError("FleetSave requiere despliegue y un identificador de plan válido.")
+        if self.purpose != "fleetsave" and self.plan_id is not None:
+            raise ValueError("Identificador de fleetsave fuera de su misión.")
         if type(self.minimum_duration_seconds) is not int or self.minimum_duration_seconds < 0 or type(self.origin_type) is not int or self.origin_type not in {1, 3}:
             raise ValueError("Duración mínima o tipo de origen inválidos.")
         if self.purpose == "defender":

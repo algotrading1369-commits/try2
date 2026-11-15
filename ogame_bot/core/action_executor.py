@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def uses_real_resources(upgrade: Upgrade, settings: BrainSettings) -> bool:
+    if upgrade.item == "solar_satellite" and upgrade.reason.startswith("automatic_energy_"):
+        return not settings.dry_run or settings.economic_live
     if upgrade.production_key is not None:
         return settings.shipyard_live
     return (not settings.dry_run
@@ -59,10 +61,14 @@ def preflight(document: Document, upgrade: Upgrade, config: Config) -> str | Non
         return "resources_unknown"
     if not afford(values, upgrade.cost, config.brain.reserve):
         return "resources_or_reserve_insufficient"
-    if upgrade.kind == "building" and upgrade.item != "solar_plant":
+    if upgrade.kind == "building" and upgrade.item in MINES:
         consumption = energy_delta(upgrade.item, upgrade.current_level) if upgrade.item in MINES else 0
         if values["energy"] - consumption < config.brain.minimum_energy:
             return "energy_insufficient"
+    if upgrade.kind == "building":
+        fields = parsing.planet_fields(document)
+        if fields.data is not None and fields.data.get("free",1) <= 0:
+            return "planet_fields_full"
     return None
 
 
@@ -107,7 +113,9 @@ class ActionExecutor:
             return {"state": "completed", "reason": "probe_bootstrap_already_completed"}
         settings = effective_brain_settings(configured, probe_completed=completed)
         bootstrap = probe_bootstrap_action(upgrade, settings)
-        if upgrade.production_key is not None:
+        if upgrade.item == "solar_satellite" and upgrade.reason.startswith("automatic_energy_"):
+            allowed = bool(settings.builder_enabled and settings.auto_solar and settings.energy_source == "solar_satellite" and upgrade.production_key == "auto-energy-" + str(upgrade.body_id) and upgrade.quantity <= settings.shipyard_max_batch and upgrade.target_level <= settings.max_satellites)
+        elif upgrade.production_key is not None:
             goal = next((goal for goal in settings.shipyard_queue if goal.id == upgrade.production_key), None)
             produced = self.journal.produced(upgrade.production_key, upgrade.body_id, upgrade.item)
             allowed = bool(not settings.probe_target and settings.shipyard_enabled and goal and goal.body_id == upgrade.body_id and goal.item == upgrade.item and produced + upgrade.quantity <= goal.quantity and upgrade.quantity <= settings.shipyard_max_batch)
@@ -119,6 +127,7 @@ class ActionExecutor:
             allowed = settings.builder_enabled and (
                 (upgrade.item == "solar_plant" and settings.auto_solar and upgrade.target_level <= settings.max_solar_level)
                 or any(goal.item == upgrade.item and upgrade.target_level <= goal.target_level for goal in settings.build_goals)
+                or (settings.auto_storage and upgrade.item in {"metal_storage","crystal_storage","deuterium_tank"} and upgrade.reason == "storage_for_" + {"metal_storage":"metal","crystal_storage":"crystal","deuterium_tank":"deuterium"}[upgrade.item] and upgrade.target_level <= settings.max_storage_level)
             )
         elif upgrade.kind == "research":
             allowed = settings.research_enabled and any(goal.item == upgrade.item and upgrade.target_level <= goal.target_level for goal in settings.research_goals)

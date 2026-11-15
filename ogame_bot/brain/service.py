@@ -27,9 +27,12 @@ class Brain:
     def select(self, actions: list[Upgrade]) -> Upgrade | None:
         if not actions:
             return None
-        energy = next((action for action in actions if action.reason == "energy_deficit"), None)
+        energy = next((action for action in actions if action.reason == "energy_deficit" or action.reason == "automatic_energy_energy_deficit"), None)
         if energy is not None:
             return energy
+        storage = next((action for action in actions if action.reason.startswith("storage_for_")),None)
+        if storage is not None:
+            return storage
         last = self.journal.last_completed_kind()
         return next((action for action in actions if action.kind != last), actions[0])
 
