@@ -258,6 +258,33 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(job.next_due, deadline)
         self.assertFalse(self.session.defense_paused)
 
+    async def test_defender_keeps_running_during_a_25_minute_economic_wait(self):
+        clock = [0.0]
+        scheduler = self.runtime.scheduler
+        scheduler.clock = lambda: clock[0]
+        scheduler.uniform = lambda minimum, maximum: minimum
+        self.runtime.config = replace(self.config, defender=replace(self.config.defender,idle_min_seconds=600,idle_max_seconds=600))
+        self.runtime.latest = snapshot()
+        self.runtime._read_requested = False
+        self.session.defense_paused = False
+        for job in scheduler.jobs.values():
+            job.next_due = 10000
+        scheduler.jobs['defender'].next_due = 600
+        scheduler.defer('brain',1500,'queue_finishes')
+        for instant in (599,600,1199,1200):
+            clock[0] = instant
+            await scheduler.run_due()
+        self.assertEqual(self.defender.process.await_count,2)
+        self.assertEqual(scheduler.jobs['defender'].next_due,1800)
+        self.assertEqual(scheduler.jobs['brain'].next_due,1500)
+        self.runtime.brain.process.assert_not_awaited()
+        self.runtime.scanner.refresh_economy.assert_not_awaited()
+
+    async def test_clear_defense_check_is_visible_in_normal_logs(self):
+        with self.assertLogs('ogame_bot.scheduler.runtime',level='INFO') as logs:
+            await self.runtime._defend()
+        self.assertIn('DEFENSA: revisión terminada; estado: clear',logs.output[0])
+
     async def test_reauthentication_requires_new_defense_before_automation(self):
         self.session.state = SessionState.WAITING_LOGIN
         async def recover(): self.session.state = SessionState.READY

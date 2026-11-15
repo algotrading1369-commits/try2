@@ -197,6 +197,8 @@ class BotRuntime:
     async def _defend(self) -> None:
         if self.defender is not None:
             await self.defender.process()
+            minimum, maximum = self._defender_interval()
+            logger.info("DEFENSA: revisión terminada; estado: %s; intervalo propio: %.0f–%.0f segundos. La espera económica no aplaza esta revisión.", self.defender.last_state, minimum, maximum)
             if self.session.state != SessionState.READY:
                 self._request_recovery()
 

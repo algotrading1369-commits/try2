@@ -459,6 +459,12 @@ conserva la lectura real de recursos antes de enviar su orden. Los recursos que
 ya se han leído en el DOM tras el clic se reutilizan para actualizar el panel,
 sin abrir otras páginas ni presentar una resta estimada como lectura real. Defensa mantiene
 su intervalo independiente; una amenaza o reconexión puede anticipar una visita.
+Cada comprobación defensiva terminada deja una línea INFO `DEFENSA: revisión
+terminada`, también cuando no hay ataques. Su informe y la fila Defensa del
+scheduler tienen sus propias horas; la hora de lectura de recursos corresponde
+al scanner económico y no acredita cuándo se comprobó por última vez un ataque.
+La regresión del scheduler comprueba dos revisiones a 600 y 1200 segundos mientras
+la economía permanece esperando hasta los 1500 segundos, sin recorridos económicos.
 
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
