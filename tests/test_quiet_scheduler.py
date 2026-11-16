@@ -155,6 +155,24 @@ class QuietRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.journal.pending_for.return_value = ('other',MagicMock())
         self.assertFalse(self.runtime._parallel_queue_ready(snapshot(),self.pending_report(parallel=True)))
 
+    def test_pending_fleet_confirmation_is_not_delayed_until_building_finishes(self):
+        action = Upgrade.from_dict(self.pending_report()['selected'])
+        self.journal.pending_upgrades.return_value = [('building',action)]
+        self.journal.pending.side_effect = lambda scope=None: ('fleet',MagicMock()) if scope == 'fleet' else ('building',action)
+        self.runtime._order_due['building'] = self.runtime.scheduler.clock()+1500
+        self.runtime._schedule_reconciliation()
+        job = self.runtime.scheduler.jobs['reconcile']
+        self.assertLessEqual(job.next_due-self.runtime.scheduler.clock(),self.config.scheduler.reconciliation_min_seconds)
+        self.assertEqual(job.waiting_reason,'waiting_for_fleet_confirmation')
+
+    def test_pending_fleet_without_economic_orders_also_keeps_its_own_deadline(self):
+        self.journal.pending.side_effect = lambda scope=None: ('fleet',MagicMock()) if scope == 'fleet' else None
+        job = self.runtime.scheduler.jobs['reconcile']
+        job.next_due = self.runtime.scheduler.clock()+1500
+        self.runtime._schedule_reconciliation()
+        self.assertLessEqual(job.next_due-self.runtime.scheduler.clock(),self.config.scheduler.reconciliation_min_seconds)
+        self.assertEqual(job.waiting_reason,'waiting_for_fleet_confirmation')
+
     async def test_unrelated_settings_keep_existing_module_deadlines(self):
         before = {name:job.next_due for name,job in self.runtime.scheduler.jobs.items()}
         self.runtime._configure_jobs(set())

@@ -495,6 +495,12 @@ comprobado en el juego la selección de Expedición y su cálculo para tres NGC
 y una sonda sin pulsar Enviar; esa inspección no acredita todavía un vuelo real.
 Los bloqueos por timeout indican la etapa del formulario que no se confirmó.
 
+Una orden de flota enviada o incierta conserva un plazo propio de confirmación,
+aunque haya construcciones pendientes. El scheduler usa el menor plazo entre
+las colas económicas y la revisión de flotas; no aplaza esa revisión hasta el
+fin de un edificio. La revisión solo relee movimientos: no repite el clic ni
+borra una orden que todavía no ha podido identificar.
+
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
 revisar la defensa antes de reanudar esos trabajos. Una comprobación de sesión

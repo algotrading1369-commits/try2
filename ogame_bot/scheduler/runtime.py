@@ -318,6 +318,7 @@ class BotRuntime:
             if self.latest is None:
                 raise DependencyPending()
             report = await self.fleet.process(self.latest)
+            self._schedule_reconciliation()
             scheduled = self.config.fleet.fleetsave
             if scheduled["enabled"] and any(note.get("reason") == "fleetsave_waiting_schedule" for note in report.get("notes",[])):
                 delay = seconds_until(scheduled["run_at"])
@@ -355,9 +356,15 @@ class BotRuntime:
         if self.journal is None:
             return
         orders = self.journal.pending_upgrades()
-        if orders and "reconcile" in self.scheduler.jobs:
-            delay = min(max(0.01, self._order_due.get(identifier, self.scheduler.clock()) - self.scheduler.clock()) for identifier, _ in orders)
-            self.scheduler.defer("reconcile", delay, "waiting_for_completion")
+        if "reconcile" not in self.scheduler.jobs:
+            return
+        delays = [max(0.01, self._order_due.get(identifier, self.scheduler.clock()) - self.scheduler.clock()) for identifier, _ in orders]
+        fleet_pending = self.journal.pending("fleet") is not None
+        if fleet_pending:
+            delays.append(self.config.scheduler.reconciliation_min_seconds)
+        if delays:
+            delay = min(delays)
+            self.scheduler.defer("reconcile", delay, "waiting_for_fleet_confirmation" if fleet_pending else "waiting_for_completion")
 
     async def run(self) -> None:
         previous = self.session.before_navigation
