@@ -57,5 +57,5 @@ class FleetManager:
         else:
             report["result"] = {"state": "no_action"}
         save_snapshot(self.config.fleet.plan_file, report)
-        logger.info("Flotas: %s propuestas, resultado: %s, simulación: %s; motivos: %s.", len(actions), report["result"]["state"], report["dry_run"] if actions else "sin propuesta", ", ".join(note["reason"] for note in report["notes"]) or "sin bloqueos de planificación")
+        logger.info("Flotas: %s propuestas, resultado: %s, simulación: %s; motivos: %s; ejecución: %s.", len(actions), report["result"]["state"], report["dry_run"] if actions else "sin propuesta", ", ".join(note["reason"] for note in report["notes"]) or "sin bloqueos de planificación", report["result"].get("reason", "sin bloqueo"))
         return report

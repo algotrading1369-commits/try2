@@ -474,6 +474,18 @@ Envío I reconocidos. Filas de vuelo o datos contradictorios impiden declarar un
 lista vacía. La prueba `test_empty_movement_redirect.py` reproduce el DOM
 observado; no acredita por sí sola un envío y regreso reales de expedición.
 
+El adaptador de expediciones reconoce además el formulario real de dos pasos:
+campos `transporterLarge`/`espionageProbe` dentro de `technologies`, botón de
+misión 15, tipo de destino por icono y velocidad por barra. Relee composición,
+destino, misión, permanencia y carga, y exige comida cero. El consumo visible
+con porcentaje y la duración H:MM:SS se interpretan sin ejecutar scripts del
+juego. Los timeouts de preparación bloquean ese intento sin registrar un envío.
+La orden se persiste antes del único clic final y sigue requiriendo confirmación
+por movimientos. Este adaptador nuevo se limita a expediciones; transporte,
+reciclaje y evacuación requieren validar sus controles en esta misma interfaz.
+Las transacciones de `test_native_fleet_form.py` usan DOM y respuestas simuladas;
+el envío y regreso reales siguen pendientes de confirmación.
+
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
 revisar la defensa antes de reanudar esos trabajos. Una comprobación de sesión

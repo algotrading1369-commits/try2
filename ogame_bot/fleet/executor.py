@@ -6,7 +6,7 @@ import math
 from typing import Any
 from datetime import datetime, timezone
 
-from playwright.async_api import Page, Locator
+from playwright.async_api import Page, Locator, Error
 import re
 
 from ..config import Config
@@ -18,6 +18,7 @@ from ..storage.orders import OrderJournal
 from . import parsing
 from .models import Flight, SHIP_IDS, coordinates
 from .reader import FleetReader
+from .form import NativeFleetForm, is_native_form
 from ..adapters.ogame.reader import expand_event_panel
 from ..defender.threats import escape_guard, escape_return_guard
 
@@ -161,48 +162,62 @@ class FleetExecutor:
                 unknown_cards = document.root.find(lambda node: node.has_class("technology") and node.attrs.get("data-technology") not in {*(str(identifier) for identifier in SHIP_IDS.values()), "212", "217"})
                 if unknown_cards or all_ships.status != "complete" or {ship: count for ship, count in (all_ships.data or {}).items() if count > 0} != flight.ships:
                     return {"state": "blocked", "reason": "movable_inventory_changed_or_incomplete"}
-            # Una selección restaurada por el navegador no puede añadir naves inadvertidas.
-            for node in document.root.find(lambda child: child.tag == "input" and bool(re.fullmatch(r"am[0-9]+", child.attrs.get("name", "")))):
-                input_name = node.attrs["name"]
-                control = page.locator(f'input[name="{input_name}"]')
-                if await control.count() != 1:
-                    raise ReadError("Campos de nave ambiguos.")
-                if await control.is_enabled():
-                    await control.fill("0")
-                elif await control.input_value() not in {"", "0"}:
-                    raise ReadError("Existe una selección de nave deshabilitada no verificable.")
-            for ship, count in flight.ships.items():
-                await (await self._single(page, "ship_input", id=SHIP_IDS[ship])).fill(str(count))
-            await (await self._single(page, "continue_2")).click()
-            galaxy, system, position = coordinates(flight.destination)
-            for name, value in (("galaxy", galaxy), ("system", system), ("position", position)):
-                await (await self._single(page, name)).fill(str(value))
-            await (await self._single(page, "target_type")).select_option(str(flight.destination_type))
-            # Este contrato usa opciones 10,20,...,100, no unidades implícitas de otra versión.
-            await (await self._single(page, "speed")).select_option(str(flight.speed_percent))
-            await (await self._single(page, "continue_3")).click()
-            await (await self._single(page, "mission", mission=flight.mission)).check()
-            if flight.mission == 15:
-                await (await self._single(page, "holding")).select_option(str(flight.holding_hours))
-            for resource, amount in flight.resources.items():
-                await (await self._single(page, "resource_input", resource=resource)).fill(str(amount))
-            # Lectura de vuelta: no se confía solo en que fill/select no lanzaran error.
-            for ship, count in flight.ships.items():
-                if await (await self._single(page, "ship_input", id=SHIP_IDS[ship])).input_value() != str(count):
-                    raise ReadError("La composición del formulario no coincide.")
-            for name, value in (("galaxy", galaxy), ("system", system), ("position", position), ("target_type", flight.destination_type), ("speed", flight.speed_percent)):
-                if await (await self._single(page, name)).input_value() != str(value):
-                    raise ReadError("El destino o la velocidad del formulario no coinciden.")
-            if not await (await self._single(page, "mission", mission=flight.mission)).is_checked():
-                raise ReadError("La misión seleccionada no coincide.")
-            if flight.mission == 15 and await (await self._single(page, "holding")).input_value() != str(flight.holding_hours):
-                raise ReadError("La permanencia de expedición no coincide.")
-            for resource, amount in flight.resources.items():
-                if await (await self._single(page, "resource_input", resource=resource)).input_value() != str(amount):
-                    raise ReadError("La carga del formulario no coincide.")
-            fuel = state.parse_integer(await (await self._single(page, "fuel")).inner_text())
-            capacity = state.parse_integer(await (await self._single(page, "capacity")).inner_text())
-            duration = state.parse_integer(await (await self._single(page, "flight_seconds")).get_attribute("data-seconds") or "")
+            native_form = NativeFleetForm(page) if is_native_form(document) else None
+            if native_form is not None:
+                try:
+                    await native_form.ships(flight)
+                    await native_form.prepare(flight)
+                except Error:
+                    raise ReadError("El formulario de dos pasos no confirmó la misión o su cálculo a tiempo.") from None
+            else:
+                # Una selección restaurada por el navegador no puede añadir naves inadvertidas.
+                for node in document.root.find(lambda child: child.tag == "input" and bool(re.fullmatch(r"am[0-9]+", child.attrs.get("name", "")))):
+                    input_name = node.attrs["name"]
+                    control = page.locator(f'input[name="{input_name}"]')
+                    if await control.count() != 1:
+                        raise ReadError("Campos de nave ambiguos.")
+                    if await control.is_enabled():
+                        await control.fill("0")
+                    elif await control.input_value() not in {"", "0"}:
+                        raise ReadError("Existe una selección de nave deshabilitada no verificable.")
+                for ship, count in flight.ships.items():
+                    await (await self._single(page, "ship_input", id=SHIP_IDS[ship])).fill(str(count))
+                await (await self._single(page, "continue_2")).click()
+                galaxy, system, position = coordinates(flight.destination)
+                for name, value in (("galaxy", galaxy), ("system", system), ("position", position)):
+                    await (await self._single(page, name)).fill(str(value))
+                await (await self._single(page, "target_type")).select_option(str(flight.destination_type))
+                # Este contrato usa opciones 10,20,...,100, no unidades implícitas de otra versión.
+                await (await self._single(page, "speed")).select_option(str(flight.speed_percent))
+                await (await self._single(page, "continue_3")).click()
+                await (await self._single(page, "mission", mission=flight.mission)).check()
+                if flight.mission == 15:
+                    await (await self._single(page, "holding")).select_option(str(flight.holding_hours))
+                for resource, amount in flight.resources.items():
+                    await (await self._single(page, "resource_input", resource=resource)).fill(str(amount))
+                # Lectura de vuelta: no se confía solo en que fill/select no lanzaran error.
+                for ship, count in flight.ships.items():
+                    if await (await self._single(page, "ship_input", id=SHIP_IDS[ship])).input_value() != str(count):
+                        raise ReadError("La composición del formulario no coincide.")
+                for name, value in (("galaxy", galaxy), ("system", system), ("position", position), ("target_type", flight.destination_type), ("speed", flight.speed_percent)):
+                    if await (await self._single(page, name)).input_value() != str(value):
+                        raise ReadError("El destino o la velocidad del formulario no coinciden.")
+                if not await (await self._single(page, "mission", mission=flight.mission)).is_checked():
+                    raise ReadError("La misión seleccionada no coincide.")
+                if flight.mission == 15 and await (await self._single(page, "holding")).input_value() != str(flight.holding_hours):
+                    raise ReadError("La permanencia de expedición no coincide.")
+                for resource, amount in flight.resources.items():
+                    if await (await self._single(page, "resource_input", resource=resource)).input_value() != str(amount):
+                        raise ReadError("La carga del formulario no coincide.")
+            if native_form is not None:
+                try:
+                    fuel, capacity, duration = await native_form.quote()
+                except Error:
+                    raise ReadError("No se pudo leer el cálculo del vuelo en el formulario.") from None
+            else:
+                fuel = state.parse_integer(await (await self._single(page, "fuel")).inner_text())
+                capacity = state.parse_integer(await (await self._single(page, "capacity")).inner_text())
+                duration = state.parse_integer(await (await self._single(page, "flight_seconds")).get_attribute("data-seconds") or "")
             fuel_limit = self.config.defender.maximum_fuel if defensive else self.config.fleet.maximum_fuel
             duration_limit = self.config.defender.maximum_flight_seconds if defensive else self.config.fleet.maximum_oneway_seconds
             if fuel is None or capacity is None or duration is None or capacity <= 0 or duration <= 0 or duration < flight.minimum_duration_seconds or fuel > fuel_limit or duration > duration_limit or (not dynamic_load and sum(flight.resources.values()) + fuel > capacity):
@@ -256,6 +271,13 @@ class FleetExecutor:
                 return_reason = escape_return_guard(flight, duration, self.config.defender)
                 if return_reason is not None:
                     return {"state": "blocked", "reason": return_reason}
+            if native_form is not None:
+                try:
+                    await native_form.verify(flight)
+                    if await native_form.quote() != (fuel, capacity, duration):
+                        return {"state": "blocked", "reason": "flight_quote_changed_before_send"}
+                except Error:
+                    raise ReadError("No se pudo verificar el formulario final antes del envío.") from None
             sender = await self._single(page, "send")
             if not await sender.is_visible() or not await sender.is_enabled():
                 return {"state": "blocked", "reason": "send_button_unavailable"}
