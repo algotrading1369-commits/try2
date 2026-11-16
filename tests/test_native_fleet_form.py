@@ -13,6 +13,7 @@ import test_fleet as fixtures
 
 class QuoteTests(unittest.TestCase):
     def test_observed_visible_quote(self):
+        self.assertEqual(parse_quote('33 (1%)','75.000','0:13:29 h'),(33,75000,809))
         self.assertEqual(parse_quote('23 (0%)','75.000','0:04:12 h'),(23,75000,252))
         self.assertEqual(parse_quote('1.234 (1,5%)','1.000.000','12:59:59 h'),(1234,1000000,46799))
 
@@ -33,19 +34,47 @@ class NativeTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.h.temp.cleanup)
         self.addCleanup(self.h.journal.close)
         h = self.h
+        self.display_target = '['+h.flight.destination+'] Espacio infinito'
         h.page.wait_for_function = AsyncMock()
         original = h.page.locator.side_effect
+        focused = [None]
+        self.internal_coordinates = {}
+
+        async def key_press(key):
+            selector = focused[0]
+            if selector is None:
+                raise AssertionError('Keyboard input without a focused coordinate')
+            control = h.controls[selector]
+            if key == 'Backspace':
+                control.value = ''
+            elif key.isdecimal():
+                control.value += key
+                self.internal_coordinates[selector[1:]] = control.value
+            elif key not in {'ControlOrMeta+A','Tab'}:
+                raise AssertionError('Unexpected coordinate key')
+        h.page.keyboard.press = AsyncMock(side_effect=key_press)
 
         def locator(selector):
             control = original(selector)
             control.press = AsyncMock()
             control.wait_for = AsyncMock()
+            if selector in {'#galaxy','#system','#position'}:
+                async def focus():
+                    focused[0] = selector
+                control.click = AsyncMock(side_effect=focus)
+            if selector == '#missionButton15[data-mission="15"]':
+                async def ready(**kwargs):
+                    route = ':'.join(self.internal_coordinates.get(key,'') for key in ('galaxy','system','position'))
+                    if route != h.flight.destination:
+                        raise PlaywrightTimeout('The game target was not updated by keyboard events')
+                control.wait_for = AsyncMock(side_effect=ready)
             if selector == '#pbutton':
                 control.get_attribute = AsyncMock(return_value='planet_selected')
             if selector == '#speedPercentage':
                 control.get_attribute = AsyncMock(return_value='10')
             text = {'#speedPercentage .step.selected':'100','#missionName':'Expedición',
-                    '#consumption':'100 (0%)','#storage':'200000000','#duration':'0:01:00 h'}
+                    '#consumption':'100 (0%)','#storage':'200000000','#duration':'0:01:00 h',
+                    '#targetPlanet':self.display_target}
             if selector in text:
                 control.inner_text = AsyncMock(return_value=text[selector])
             if selector == 'select#expeditiontime':
@@ -71,6 +100,7 @@ class NativeTransactionTests(unittest.IsolatedAsyncioTestCase):
         h.controls[h.config.fleet.selectors['send']].click.assert_awaited_once()
         self.assertNotIn(h.config.fleet.selectors['ship_input'].format(id=203),h.controls)
         self.assertNotIn(h.config.fleet.selectors['continue_3'],h.controls)
+        self.assertEqual(':'.join(self.internal_coordinates[key] for key in ('galaxy','system','position')),h.flight.destination)
 
     async def test_changed_food_blocks_before_preparing_or_sending(self):
         h = self.h
@@ -92,6 +122,14 @@ class NativeTransactionTests(unittest.IsolatedAsyncioTestCase):
     async def test_ajax_timeout_becomes_a_read_error_before_any_send(self):
         h = self.h
         h.page.wait_for_function.side_effect = PlaywrightTimeout('Synthetic timeout')
+        with self.assertRaises(ReadError):
+            await h.executor.execute(h.flight)
+        self.assertFalse(h.sent)
+        self.assertIsNone(h.journal.pending('fleet'))
+
+    async def test_stale_internal_target_is_rejected_despite_matching_input_values(self):
+        h = self.h
+        self.display_target = '[1:999:16] Espacio infinito'
         with self.assertRaises(ReadError):
             await h.executor.execute(h.flight)
         self.assertFalse(h.sent)

@@ -39,6 +39,7 @@ def parse_quote(fuel_text: str, capacity_text: str, duration_text: str) -> tuple
 class NativeFleetForm:
     def __init__(self, page: Page) -> None:
         self.page = page
+        self.stage = 'ship_selection'
 
     async def control(self, selector: str) -> Locator:
         locator = self.page.locator(selector)
@@ -68,27 +69,47 @@ class NativeFleetForm:
                 raise ReadError('Una nave requerida está deshabilitada o conserva una selección.')
         await self.verify_ships(flight)
         await (await self.control('#continueToFleet2')).click()
+        self.stage = 'destination_ready'
         await self.page.locator('#galaxy').wait_for(state='visible')
 
     async def prepare(self, flight: Flight) -> None:
         from .models import coordinates
+        self.stage = 'coordinates'
         for name, value in zip(('galaxy', 'system', 'position'), coordinates(flight.destination)):
             control = await self.control('#' + name)
-            await control.fill(str(value))
-            # OGame recalculates the target on keyboard/change events.
-            await control.press('Tab')
-        await (await self.control('#pbutton')).click()
+            if await control.input_value() == str(value):
+                continue
+            # Filling the DOM value leaves OGame's target unchanged. The live
+            # form requires actual keydown/keyup events, without refocusing
+            # between characters (focus itself can clear a coordinate).
+            await control.click()
+            await self.page.keyboard.press('ControlOrMeta+A')
+            await self.page.keyboard.press('Backspace')
+            for digit in str(value):
+                await self.page.keyboard.press(digit)
+            await self.page.keyboard.press('Tab')
+            if await control.input_value() != str(value):
+                raise ReadError('La coordenada no conserva el valor introducido.')
+        target = await self.control('#pbutton')
+        if 'planet_selected' not in (await target.get_attribute('class') or '').split():
+            await target.click()
+        self.stage = 'mission_available'
         mission = self.page.locator('#missionButton15[data-mission="15"]')
         await mission.wait_for(state='visible')
+        self.stage = 'mission_selection'
         await (await self.control('#missionButton15[data-mission="15"]')).click()
+        self.stage = 'speed'
         slider = await self.control('#speedPercentage')
         if await slider.get_attribute('stepsize') != '10' or flight.speed_percent % 10:
             raise ReadError('Escala de velocidad del formulario no reconocida.')
         await (await self.control(f'#speedPercentage .step[data-step="{flight.speed_percent // 10}"]')).click()
+        self.stage = 'holding'
         holding = await self.control('select#expeditiontime')
         await holding.select_option(str(flight.holding_hours), force=True)
+        self.stage = 'resources'
         for resource, amount in flight.resources.items():
             await (await self.control(f'input#{resource}[name="{resource}"]')).fill(str(amount))
+        self.stage = 'quote'
         await self.page.wait_for_function("""() => {
             const name = document.querySelector('#missionName');
             const duration = document.querySelector('#duration');
@@ -118,6 +139,9 @@ class NativeFleetForm:
         for name, value in zip(('galaxy', 'system', 'position'), coordinates(flight.destination)):
             if await (await self.control('#'+name)).input_value() != str(value):
                 raise ReadError('El destino del formulario no coincide.')
+        target_text = await (await self.control('#targetPlanet')).inner_text()
+        if not re.match(r'^\s*\[' + re.escape(flight.destination) + r'\](?:\s|$)', target_text):
+            raise ReadError('El destino calculado por el juego no coincide con las coordenadas.')
         if (await (await self.control('#pbutton')).get_attribute('class') or '').split() != ['planet_selected']:
             raise ReadError('El tipo de destino no está verificado.')
         if (await (await self.control('#missionName')).inner_text()).strip() != 'Expedición':

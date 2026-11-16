@@ -168,7 +168,7 @@ class FleetExecutor:
                     await native_form.ships(flight)
                     await native_form.prepare(flight)
                 except Error:
-                    raise ReadError("El formulario de dos pasos no confirmó la misión o su cálculo a tiempo.") from None
+                    raise ReadError("El formulario de dos pasos no confirmó la etapa " + native_form.stage + " a tiempo.") from None
             else:
                 # Una selección restaurada por el navegador no puede añadir naves inadvertidas.
                 for node in document.root.find(lambda child: child.tag == "input" and bool(re.fullmatch(r"am[0-9]+", child.attrs.get("name", "")))):

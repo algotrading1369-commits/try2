@@ -486,6 +486,15 @@ reciclaje y evacuación requieren validar sus controles en esta misma interfaz.
 Las transacciones de `test_native_fleet_form.py` usan DOM y respuestas simuladas;
 el envío y regreso reales siguen pendientes de confirmación.
 
+La edición de coordenadas usa pulsaciones reales de teclado: cambiar solo el
+valor del input no actualizaba el destino interno ni habilitaba Expedición en
+la interfaz observada. Se conservan los campos que ya coinciden y no se vuelve
+a enfocar un campo entre dígitos. La verificación final contrasta también el
+destino calculado en `targetPlanet`, no solo los valores de los inputs. Se ha
+comprobado en el juego la selección de Expedición y su cálculo para tres NGC
+y una sonda sin pulsar Enviar; esa inspección no acredita todavía un vuelo real.
+Los bloqueos por timeout indican la etapa del formulario que no se confirmó.
+
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
 revisar la defensa antes de reanudar esos trabajos. Una comprobación de sesión
