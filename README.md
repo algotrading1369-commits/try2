@@ -466,6 +466,14 @@ al scanner económico y no acredita cuándo se comprobó por última vez un ataq
 La regresión del scheduler comprueba dos revisiones a 600 y 1200 segundos mientras
 la economía permanece esperando hasta los 1500 segundos, sin recorridos económicos.
 
+En ES 13.1.0-r5, Movimientos redirige a Envío de flota cuando no hay vuelos.
+Ese retorno se acepta solo para la lectura de Movimientos, con identidad ya
+verificada, contadores completos de flotas y expediciones usados a cero, aviso
+visible de ausencia de movimientos, panel de eventos oculto y controles de
+Envío I reconocidos. Filas de vuelo o datos contradictorios impiden declarar una
+lista vacía. La prueba `test_empty_movement_redirect.py` reproduce el DOM
+observado; no acredita por sí sola un envío y regreso reales de expedición.
+
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
 revisar la defensa antes de reanudar esos trabajos. Una comprobación de sesión

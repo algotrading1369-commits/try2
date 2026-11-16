@@ -340,7 +340,17 @@ class SessionManager:
                     self.state = SessionState.WAITING_LOGIN
                     raise LoginRequired("La sesión ha dejado de estar autenticada.")
                 if parse_qs(urlsplit(self.page.url).query).get("component") != [component]:
-                    raise ReadError("El servidor no mostró el componente solicitado.")
+                    empty_redirect = False
+                    if component == "movement" and parse_qs(urlsplit(self.page.url).query).get("component") == ["fleetdispatch"]:
+                        # ES 13.1 redirects movement to dispatch when no fleets
+                        # exist. Verify the rendered counters, never the URL alone.
+                        from ..fleet.parsing import verified_empty_dispatch
+                        from ..scanner.dom import Document
+                        await self.page.locator('#eventboxBlank').wait_for(state="visible")
+                        await self.page.locator('[id="slots"]').filter(has_text=re.compile(r"Flotas:\s*\d+\s*/\s*\d+")).first.wait_for(state="attached")
+                        empty_redirect = verified_empty_dispatch(Document(await self.page.content()))
+                    if not empty_redirect:
+                        raise ReadError("El servidor no mostró el componente solicitado.")
                 self.transaction_active = True
                 try:
                     yield self.page

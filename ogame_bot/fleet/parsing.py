@@ -50,7 +50,30 @@ def slots(document: Document) -> Reading[dict[str, int]]:
     return result(data, issues, found=bool(data))
 
 
+def verified_empty_dispatch(document: Document) -> bool:
+    """OGame redirects an empty movement page to fleet dispatch.
+
+    Missing movement rows alone never prove an empty account: require both
+    zero counters and the rendered, unambiguous empty event panel.
+    """
+    counters = slots(document)
+    blank = one(document.by_id("eventboxBlank"))
+    filled = one(document.by_id("eventboxFilled"))
+    def hidden(node: Any) -> bool:
+        return node is not None and ("hidden" in node.attrs or node.has_class("hidden") or bool(re.search(r"display\s*:\s*none", node.attrs.get("style", ""), re.IGNORECASE)))
+    return bool(counters.status == "complete" and counters.data is not None
+                and counters.data["fleet_used"] == 0 and counters.data["expedition_used"] == 0
+                and blank is not None and not hidden(blank)
+                and blank.text.strip().casefold() == "no hay movimientos de flota."
+                and filled is not None and hidden(filled)
+                and len(document.by_id("technologies")) == 1
+                and len(document.by_id("continueToFleet2")) == 1
+                and not document.root.find(lambda node: node.has_class("fleetDetails") or node.has_class("eventFleet") or "data-fleet-id" in node.attrs))
+
+
 def outgoing(document: Document) -> Reading[list[dict[str, Any]]]:
+    if verified_empty_dispatch(document):
+        return result([], [])
     container = one(document.by_id("fleetMovements"))
     if container is None or container.attrs.get("data-loaded") != "true":
         from .native import native_outgoing
