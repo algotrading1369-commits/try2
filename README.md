@@ -501,6 +501,13 @@ las colas económicas y la revisión de flotas; no aplaza esa revisión hasta el
 fin de un edificio. La revisión solo relee movimientos: no repite el clic ni
 borra una orden que todavía no ha podido identificar.
 
+Las filas de expedición observadas tras el primer envío no incluían
+`data-hostile`. Con indicador global explícito `noAttack`, misión 15 y destino
+válido en posición 16, esa ausencia no convierte la expedición en una amenaza
+desconocida. Se conservan las comprobaciones de llegada y retorno, y cualquier
+indicador global de ataque sigue imponiendo la pausa. Esto no sustituye la
+confirmación de composición y carga en el listado de flotas salientes.
+
 Una pausa defensiva bloquea trabajos económicos; las lecturas de defensa y
 reconciliación siguen disponibles. Una recuperación de autenticación obliga a
 revisar la defensa antes de reanudar esos trabajos. Una comprobación de sesión

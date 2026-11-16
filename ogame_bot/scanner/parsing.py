@@ -259,13 +259,18 @@ def movements(document: Document) -> Reading[dict[str, Any]]:
                     impact = datetime.fromtimestamp(stamp, timezone.utc).isoformat()
             except (ValueError, OverflowError, OSError):
                 pass
-        if mission is None or returning is None or hostile is None or impact is None:
-            issues.append("incomplete_event_" + str(len(events)))
         coordinates: dict[str, str | None] = {}
         for field, css_class in (("origin", "coordsOrigin"), ("destination", "destCoords")):
             node = one(row.find(lambda child: child.has_class(css_class)))
             match = re.search(r"\[([0-9]+:[0-9]+:[0-9]+)\]", node.text if node else "")
             coordinates[field] = match.group(1) if match else None
+        # The live event list omits data-hostile for expedition departure,
+        # holding and return rows. Mission 15 to deep space is not an incoming
+        # attack; require the explicit global noAttack indicator as well.
+        if hostile is None and mission == 15 and alert_status == "noAttack" and re.fullmatch(r"[1-9][0-9]?:[1-9][0-9]{0,3}:16", coordinates["destination"] or ""):
+            hostile = False
+        if mission is None or returning is None or hostile is None or impact is None:
+            issues.append("incomplete_event_" + str(len(events)))
         destination_type_raw = row.attrs.get("data-destination-type", "")
         destination_id_raw = row.attrs.get("data-destination-id", "")
         destination_type = int(destination_type_raw) if destination_type_raw in {"1", "3"} else None
