@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import time
 from playwright.async_api import Error
 
@@ -14,6 +15,8 @@ from ..errors import ReadError, ConnectionLost
 from ..scanner.dom import Document
 from . import parsing
 from .models import coordinates, SHIP_IDS
+
+logger = logging.getLogger(__name__)
 
 
 class FleetReader:
@@ -38,6 +41,7 @@ class FleetReader:
             return
         reader = OGameReader(self.session)
         origin = snapshot.bodies[0].body.id if snapshot.bodies else None
+        stage = "fleetdispatch"
         try:
             origins = set(self.config.fleet.expeditions["origins"] if self.config.fleet.expeditions["enabled"] else [])
             origins.update(self.config.fleet.transports["sources"] if self.config.fleet.transports["enabled"] else [])
@@ -53,8 +57,10 @@ class FleetReader:
                 snapshot.fleet_slots = parsing.slots(fleet)
                 snapshot.movements = state.movements(fleet)
                 snapshot.registry = state.body_registry(fleet,self.config.server_origin)
+            stage = "movement"
             snapshot.outgoing = parsing.outgoing(await reader.capture("movement"))
-        except (ReadError, ConnectionLost):
+        except (ReadError, ConnectionLost) as error:
+            logger.warning("Flotas: lectura fallida en %s (%s); no se autoriza un envío con movimientos sin verificar.", stage, type(error).__name__)
             snapshot.fleet_slots = Reading.unavailable("fleet_state_read_failed")
             snapshot.outgoing = Reading.unavailable("fleet_state_read_failed")
         expo = self.config.fleet.expeditions

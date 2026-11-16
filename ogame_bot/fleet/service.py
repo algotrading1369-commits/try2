@@ -42,7 +42,9 @@ class FleetManager:
             self.planner.notes.append({"reason":"shipyard_confirmation_pending","origins":sorted(occupied)})
         report: dict[str, Any] = {"schema_version": 1, "created_at": utc_now(), "dry_run": not real_flight_enabled(actions[0],self.config) if actions else self.config.brain.dry_run,
             "model": "historical_resource_expeditions_with_configured_capacities", "actions": [action.to_dict() for action in actions],
-            "notes": self.planner.notes, "result": {"state": "planned"}}
+            "notes": self.planner.notes, "result": {"state": "planned"},
+            "readings": {"slots": {"status": snapshot.fleet_slots.status, "issues": list(snapshot.fleet_slots.issues)},
+                         "outgoing": {"status": snapshot.outgoing.status, "issues": list(snapshot.outgoing.issues)}}}
         save_snapshot(self.config.fleet.plan_file, report)
         if self.journal.pending("fleet") is not None:
             report["result"] = await self.executor.reconcile()
@@ -55,5 +57,5 @@ class FleetManager:
         else:
             report["result"] = {"state": "no_action"}
         save_snapshot(self.config.fleet.plan_file, report)
-        logger.info("Flotas: %s propuestas, resultado: %s, simulación: %s.", len(actions), report["result"]["state"], report["dry_run"])
+        logger.info("Flotas: %s propuestas, resultado: %s, simulación: %s; motivos: %s.", len(actions), report["result"]["state"], report["dry_run"] if actions else "sin propuesta", ", ".join(note["reason"] for note in report["notes"]) or "sin bloqueos de planificación")
         return report
